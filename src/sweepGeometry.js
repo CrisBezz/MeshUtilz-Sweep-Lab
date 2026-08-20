@@ -1,26 +1,4 @@
 import * as THREE from 'three';
-
-export function makeProfile(type,size,sides=12){
- const r=size/2, pts=[];
- if(type==='circle'){for(let i=0;i<sides;i++){const a=i/sides*Math.PI*2;pts.push(new THREE.Vector2(Math.cos(a)*r,Math.sin(a)*r));}}
- else if(type==='triangle'){for(let i=0;i<3;i++){const a=i/3*Math.PI*2+Math.PI/2;pts.push(new THREE.Vector2(Math.cos(a)*r,Math.sin(a)*r));}}
- else if(type==='rectangle'){pts.push(new THREE.Vector2(-r,-r*.55),new THREE.Vector2(r,-r*.55),new THREE.Vector2(r,r*.55),new THREE.Vector2(-r,r*.55));}
- else pts.push(new THREE.Vector2(-r,-r),new THREE.Vector2(r,-r),new THREE.Vector2(r,r),new THREE.Vector2(-r,r));
- return pts;
-}
-
-export function buildSweep(path,profile,{caps=true}={}){
- if(path.length<2||profile.length<3)return new THREE.BufferGeometry();
- const verts=[], idx=[], n=profile.length;
- const up=new THREE.Vector3(0,1,0), side=new THREE.Vector3(), binormal=new THREE.Vector3();
- for(let i=0;i<path.length;i++){
-  const tangent=(i===0?path[1].clone().sub(path[0]):i===path.length-1?path[i].clone().sub(path[i-1]):path[i+1].clone().sub(path[i-1])).normalize();
-  side.crossVectors(up,tangent);
-  if(side.lengthSq()<1e-8)side.set(1,0,0); else side.normalize();
-  binormal.crossVectors(tangent,side).normalize();
-  for(const p of profile){const v=path[i].clone().addScaledVector(side,p.x).addScaledVector(binormal,p.y);verts.push(v.x,v.y,v.z);}
- }
- for(let i=0;i<path.length-1;i++)for(let j=0;j<n;j++){const a=i*n+j,b=i*n+(j+1)%n,c=(i+1)*n+(j+1)%n,d=(i+1)*n+j;idx.push(a,b,d,b,c,d);}
- if(caps){const start=verts.length/3;verts.push(path[0].x,path[0].y,path[0].z);const end=verts.length/3;const q=path[path.length-1];verts.push(q.x,q.y,q.z);for(let j=0;j<n;j++){idx.push(start,(j+1)%n,j);const a=(path.length-1)*n+j,b=(path.length-1)*n+(j+1)%n;idx.push(end,a,b);}}
- const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));g.setIndex(idx);g.computeVertexNormals();g.computeBoundingSphere();return g;
-}
+export function makeProfile(type,size,sides=12){const r=size/2,p=[];if(type==='circle'){for(let i=0;i<sides;i++){const a=i/sides*Math.PI*2;p.push(new THREE.Vector2(Math.cos(a)*r,Math.sin(a)*r));}}else if(type==='triangle'){for(let i=0;i<3;i++){const a=i/3*Math.PI*2+Math.PI/2;p.push(new THREE.Vector2(Math.cos(a)*r,Math.sin(a)*r));}}else if(type==='rectangle')p.push(new THREE.Vector2(-r,-r*.55),new THREE.Vector2(r,-r*.55),new THREE.Vector2(r,r*.55),new THREE.Vector2(-r,r*.55));else p.push(new THREE.Vector2(-r,-r),new THREE.Vector2(r,-r),new THREE.Vector2(r,r),new THREE.Vector2(-r,r));return p;}
+function frames(path){const tangents=[],normals=[],binormals=[];for(let i=0;i<path.length;i++)tangents.push((i===0?path[1].clone().sub(path[0]):i===path.length-1?path[i].clone().sub(path[i-1]):path[i+1].clone().sub(path[i-1])).normalize());let seed=Math.abs(tangents[0].y)<.9?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0);normals[0]=new THREE.Vector3().crossVectors(seed,tangents[0]).normalize();binormals[0]=new THREE.Vector3().crossVectors(tangents[0],normals[0]).normalize();for(let i=1;i<path.length;i++){const axis=new THREE.Vector3().crossVectors(tangents[i-1],tangents[i]);normals[i]=normals[i-1].clone();if(axis.lengthSq()>1e-10){axis.normalize();const angle=Math.acos(THREE.MathUtils.clamp(tangents[i-1].dot(tangents[i]),-1,1));normals[i].applyAxisAngle(axis,angle).normalize();}binormals[i]=new THREE.Vector3().crossVectors(tangents[i],normals[i]).normalize();}return{normals,binormals};}
+export function buildSweep(path,profile,{caps=true}={}){if(path.length<2||profile.length<3)return new THREE.BufferGeometry();const verts=[],idx=[],n=profile.length,{normals,binormals}=frames(path);for(let i=0;i<path.length;i++)for(const p of profile){const v=path[i].clone().addScaledVector(normals[i],p.x).addScaledVector(binormals[i],p.y);verts.push(v.x,v.y,v.z);}for(let i=0;i<path.length-1;i++)for(let j=0;j<n;j++){const a=i*n+j,b=i*n+(j+1)%n,c=(i+1)*n+(j+1)%n,d=(i+1)*n+j;idx.push(a,b,d,b,c,d);}if(caps){const s=verts.length/3;verts.push(...path[0].toArray());const e=verts.length/3;verts.push(...path.at(-1).toArray());for(let j=0;j<n;j++){idx.push(s,(j+1)%n,j);const a=(path.length-1)*n+j,b=(path.length-1)*n+(j+1)%n;idx.push(e,a,b);}}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));g.setIndex(idx);g.computeVertexNormals();g.computeBoundingSphere();return g;}
