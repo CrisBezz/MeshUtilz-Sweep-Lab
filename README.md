@@ -1,2 +1,2 @@
-# Mesh-to-tubes
-3D mesh concert edges to tubes
+# Sweep-Lab
+2D curve to 3D mesh
