@@ -1,8 +1,8 @@
-name: Deploy Sweep Lab to Pages
+name: Deploy DrawMesh Lab to Pages
 
 on:
   push:
-    branches: ["sweep-v0.4"]
+    branches: ["drawmesh-v0.5"]
   workflow_dispatch:
 
 permissions:
