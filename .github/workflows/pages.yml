@@ -1,8 +1,8 @@
-name: Deploy Sweep Lab to Pages
+name: Deploy Balloon Lab to Pages
 
 on:
   push:
-    branches: ["sweep-v0.4"]
+    branches: ["balloon-v0.6"]
   workflow_dispatch:
 
 permissions:
