@@ -35,47 +35,50 @@ export function smoothRadii(values,passes=2){
 export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
   if(path.length<2)return new THREE.BufferGeometry();
   const {tangents,normals,binormals}=computeFrames(path);
-  const verts=[],idx=[];
-  const ringMeta=[];
-  const pushRing=(center,n,b,r)=>{
+  const verts=[],vnorms=[],idx=[],ringMeta=[];
+
+  const pushRing=(center,n,b,r,normalOrigin=null)=>{
     const start=verts.length/3;
     for(let j=0;j<sides;j++){
       const a=j/sides*Math.PI*2;
-      const v=center.clone().addScaledVector(n,Math.cos(a)*r).addScaledVector(b,Math.sin(a)*r);
+      const radial=n.clone().multiplyScalar(Math.cos(a)).addScaledVector(b,Math.sin(a)).normalize();
+      const v=center.clone().addScaledVector(radial,r);
       verts.push(v.x,v.y,v.z);
+      const vn=normalOrigin?v.clone().sub(normalOrigin).normalize():radial;
+      vnorms.push(vn.x,vn.y,vn.z);
     }
     ringMeta.push(start);
   };
 
-  // Rounded start cap: pole -> expanding latitude rings -> main tube.
   const startR=Math.max(0.001,radii[0]);
-  const startT=tangents[0],startN=normals[0],startB=binormals[0];
-  const startPole=path[0].clone().addScaledVector(startT,-startR);
-  const startPoleIndex=verts.length/3;verts.push(startPole.x,startPole.y,startPole.z);
+  const startT=tangents[0],startN=normals[0],startB=binormals[0],startP=path[0];
+  const startPole=startP.clone().addScaledVector(startT,-startR);
+  const startPoleIndex=verts.length/3;
+  verts.push(startPole.x,startPole.y,startPole.z);
+  vnorms.push(-startT.x,-startT.y,-startT.z);
   for(let k=1;k<=capRings;k++){
     const u=k/(capRings+1),theta=u*Math.PI/2;
-    const center=path[0].clone().addScaledVector(startT,-Math.cos(theta)*startR);
-    pushRing(center,startN,startB,Math.sin(theta)*startR);
+    const center=startP.clone().addScaledVector(startT,-Math.cos(theta)*startR);
+    pushRing(center,startN,startB,Math.sin(theta)*startR,startP);
   }
 
-  // Main rings.
   for(let i=0;i<path.length;i++) pushRing(path[i],normals[i],binormals[i],Math.max(0.001,radii[i]));
 
-  // Rounded end cap: main tube -> shrinking latitude rings -> pole.
   const endR=Math.max(0.001,radii[radii.length-1]);
   const endT=tangents.at(-1),endN=normals.at(-1),endB=binormals.at(-1),endP=path.at(-1);
   for(let k=1;k<=capRings;k++){
     const u=k/(capRings+1),theta=u*Math.PI/2;
     const center=endP.clone().addScaledVector(endT,Math.sin(theta)*endR);
-    pushRing(center,endN,endB,Math.cos(theta)*endR);
+    pushRing(center,endN,endB,Math.cos(theta)*endR,endP);
   }
   const endPole=endP.clone().addScaledVector(endT,endR);
-  const endPoleIndex=verts.length/3;verts.push(endPole.x,endPole.y,endPole.z);
+  const endPoleIndex=verts.length/3;
+  verts.push(endPole.x,endPole.y,endPole.z);
+  vnorms.push(endT.x,endT.y,endT.z);
 
-  // Start pole fan.
   const firstRing=ringMeta[0];
   for(let j=0;j<sides;j++) idx.push(startPoleIndex,firstRing+(j+1)%sides,firstRing+j);
-  // Ring connections.
+
   for(let r=0;r<ringMeta.length-1;r++){
     const a0=ringMeta[r],b0=ringMeta[r+1];
     for(let j=0;j<sides;j++){
@@ -83,12 +86,14 @@ export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
       idx.push(a,b,d,b,c,d);
     }
   }
-  // End fan.
+
   const lastRing=ringMeta.at(-1);
   for(let j=0;j<sides;j++) idx.push(endPoleIndex,lastRing+j,lastRing+(j+1)%sides);
 
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
-  g.setIndex(idx);g.computeVertexNormals();g.computeBoundingSphere();
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(vnorms,3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
   return g;
 }
