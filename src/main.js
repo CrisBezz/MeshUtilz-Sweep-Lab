@@ -5,9 +5,9 @@ import {buildBalloon,smoothRadii} from './balloonGeometry.js';
 const host=document.querySelector('#viewport'),scene=new THREE.Scene();
 scene.background=new THREE.Color(0x22262d);
 const WORLD_ORIGIN=new THREE.Vector3(0,0,0);
-const camera=new THREE.PerspectiveCamera(50,1,.01,1000);camera.position.set(7,7,7);camera.lookAt(WORLD_ORIGIN);
+const camera=new THREE.PerspectiveCamera(50,1,.01,1000);camera.position.set(7,7,7);
 const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.appendChild(renderer.domElement);
-const controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(WORLD_ORIGIN);controls.enableDamping=true;controls.enabled=true;controls.enableRotate=true;controls.enablePan=true;controls.enableZoom=true;controls.touches.ONE=THREE.TOUCH.ROTATE;controls.touches.TWO=THREE.TOUCH.DOLLY_PAN;controls.update();
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(WORLD_ORIGIN);controls.enableDamping=true;controls.enabled=true;controls.enableRotate=true;controls.enablePan=true;controls.enableZoom=true;controls.touches.ONE=THREE.TOUCH.ROTATE;controls.touches.TWO=THREE.TOUCH.DOLLY_PAN;
 scene.add(new THREE.HemisphereLight(0xffffff,0x444444,2.2));const dl=new THREE.DirectionalLight(0xffffff,2);dl.position.set(5,8,4);scene.add(dl);
 scene.add(new THREE.GridHelper(20,40,0x657080,0x343a44));
 scene.add(new THREE.AxesHelper(0.75));
@@ -26,9 +26,9 @@ function meshCenter(x){
 }
 function focusSelection(x){
   if(!x)return;
-  const next=meshCenter(x),delta=next.clone().sub(controls.target);
+  const next=meshCenter(x);
   controls.target.copy(next);
-  camera.position.add(delta);
+  camera.lookAt(next);
   controls.update();
 }
 function viewPlane(){
@@ -84,10 +84,10 @@ function updateSelectionUI(){const on=!!selected;$('#applyBtn').disabled=!on;$('
 function select(x){if(selected)selected.mesh.material.emissive.setHex(0);selected=x;if(x){x.mesh.material.emissive.setHex(0x29405f);loadControls(x);focusSelection(x)}updateSelectionUI();updateStatus()}
 function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');status.textContent=m==='draw'?'Draw: Pencil draws • finger always orbits':'Orbit / Select: finger or Pencil rotates • tap selects'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
-function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);focusSelection(selected);refreshExport();updateStatus()}
+function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);refreshExport();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.6\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.6.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.7\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.7.obj';a.classList.remove('disabled')}
 
 function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#plane').value==='VIEW'?'Drawing balloon on view plane…':'Drawing balloon…'}
 function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
@@ -126,5 +126,6 @@ $('#deleteBtn').onclick=()=>{if(!selected)return;checkpoint();disposeItem(select
 $('#exportBtn').addEventListener('click',e=>{if($('#exportBtn').classList.contains('disabled')){e.preventDefault();status.textContent='Nothing to export'}else status.textContent=`OBJ ready • ${items.length} balloon${items.length===1?'':'s'}`});
 
 function resize(){const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+function resetInitialView(){controls.target.copy(WORLD_ORIGIN);camera.position.set(7,7,7);camera.up.set(0,1,0);camera.lookAt(WORLD_ORIGIN);controls.update()}
 addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,120));if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
-resize();syncOutputs();updateSelectionUI();setMode('draw');refreshExport();renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+resize();resetInitialView();syncOutputs();updateSelectionUI();setMode('draw');refreshExport();renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
