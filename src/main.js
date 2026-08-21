@@ -11,13 +11,19 @@ scene.add(new THREE.HemisphereLight(0xffffff,0x444444,2.2));const dl=new THREE.D
 scene.add(new THREE.GridHelper(20,40,0x657080,0x343a44));
 
 const $=s=>document.querySelector(s),status=$('#status'),ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
-let items=[],current=null,drawing=false,mode='draw',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null;
+let items=[],current=null,drawing=false,mode='draw',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null,activeDrawPlane=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 
 function uiSettings(){return{width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked}}
-function plane(){const v=$('#plane').value;return v==='XY'?new THREE.Plane(new THREE.Vector3(0,0,1),0):v==='YZ'?new THREE.Plane(new THREE.Vector3(1,0,0),0):new THREE.Plane(new THREE.Vector3(0,1,0),0)}
+function viewPlane(){
+  const normal=new THREE.Vector3();camera.getWorldDirection(normal).normalize();
+  let anchor=controls.target.clone();
+  if(selected){selected.mesh.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(selected.mesh);if(!box.isEmpty())box.getCenter(anchor)}
+  return new THREE.Plane().setFromNormalAndCoplanarPoint(normal,anchor);
+}
+function plane(){const v=$('#plane').value;if(v==='VIEW')return viewPlane();return v==='XY'?new THREE.Plane(new THREE.Vector3(0,0,1),0):v==='YZ'?new THREE.Plane(new THREE.Vector3(1,0,0),0):new THREE.Plane(new THREE.Vector3(0,1,0),0)}
 function eventRay(e){const r=renderer.domElement.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(ndc,camera)}
-function pointFromEvent(e){eventRay(e);const p=new THREE.Vector3();return ray.ray.intersectPlane(plane(),p)?p:null}
+function pointFromEvent(e){eventRay(e);const p=new THREE.Vector3(),drawPlane=activeDrawPlane||plane();return ray.ray.intersectPlane(drawPlane,p)?p:null}
 function eventPressure(e){if(e.pointerType==='pen'&&Number.isFinite(e.pressure)&&e.pressure>0)return THREE.MathUtils.clamp(e.pressure,0.05,1);return 1}
 
 function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure})),settings:{...x.settings},position:x.mesh.position.toArray()}))}
@@ -65,12 +71,12 @@ function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);refreshExport();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.3\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.3.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.4\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.4.obj';a.classList.remove('disabled')}
 
-function startDraw(e){const p=pointFromEvent(e);if(!p)return;checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent='Drawing balloon…'}
+function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#plane').value==='VIEW'?'Drawing balloon on view plane…':'Drawing balloon…'}
 function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
-function finishStroke(){if(!drawing)return;drawing=false;if(!current)return;if(current.samples.length<2){disposeItem(current);items=items.filter(x=>x!==current);current=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
+function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDrawPlane=null;return}if(current.samples.length<2){disposeItem(current);items=items.filter(x=>x!==current);current=null;activeDrawPlane=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;activeDrawPlane=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
 function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false}}
 function trackOrbitMove(e){if(orbitTap&&orbitTap.id===e.pointerId&&Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true}
 function finishOrbitTap(e){if(orbitTap&&orbitTap.id===e.pointerId&&!orbitTap.moved){eventRay(e);const hits=ray.intersectObjects(items.map(x=>x.mesh),false);select(hits.length?items.find(x=>x.mesh===hits[0].object):null)}orbitTap=null}
