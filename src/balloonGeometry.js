@@ -47,7 +47,7 @@ export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
     ringMeta.push(start);
   };
 
-  // Rounded start cap: pole -> expanding latitude rings.
+  // Rounded start cap: pole -> expanding latitude rings -> main tube.
   const startR=Math.max(0.001,radii[0]);
   const startT=tangents[0],startN=normals[0],startB=binormals[0];
   const startPole=path[0].clone().addScaledVector(startT,-startR);
@@ -59,15 +59,14 @@ export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
   }
 
   // Main rings.
-  const mainRingStart=ringMeta.length;
   for(let i=0;i<path.length;i++) pushRing(path[i],normals[i],binormals[i],Math.max(0.001,radii[i]));
 
-  // Rounded end cap.
+  // Rounded end cap: main tube -> shrinking latitude rings -> pole.
   const endR=Math.max(0.001,radii[radii.length-1]);
   const endT=tangents.at(-1),endN=normals.at(-1),endB=binormals.at(-1),endP=path.at(-1);
   for(let k=1;k<=capRings;k++){
     const u=k/(capRings+1),theta=u*Math.PI/2;
-    const center=endP.clone().addScaledVector(endT,Math.cos(theta)*endR);
+    const center=endP.clone().addScaledVector(endT,Math.sin(theta)*endR);
     pushRing(center,endN,endB,Math.cos(theta)*endR);
   }
   const endPole=endP.clone().addScaledVector(endT,endR);
