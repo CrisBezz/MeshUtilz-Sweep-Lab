@@ -1,5 +1,5 @@
 // Builds native Nomad Sculpt projects from the validated editable Tube template.
-// v0.8.3 keeps Tube Balloons live/editable and adds Outline Balloons as fixed meshes.
+// v0.8.6.2 keeps enough live Tube control points for a useful first-open cache while preserving editability.
 const TEMPLATE_URL='./src/templates/nomad-tube.nom';
 const enc=new TextEncoder(),dec=new TextDecoder();
 const u64=(dv,o)=>Number(dv.getBigUint64(o,true));
@@ -7,9 +7,9 @@ const w64=(dv,o,n)=>dv.setBigUint64(o,BigInt(n),true);
 const clone=x=>structuredClone(x);
 const DATA_FIELDS=['vertices','uvs','faces','faces_uv','faces_group','normals','colors','materials'];
 const DETAIL={
-  low:{radiusTol:.46,pathTol:.016,max:18},
-  medium:{radiusTol:.26,pathTol:.008,max:28},
-  high:{radiusTol:.13,pathTol:.0035,max:48}
+  low:{radiusTol:.46,pathTol:.016,max:18,min:6},
+  medium:{radiusTol:.26,pathTol:.008,max:28,min:8},
+  high:{radiusTol:.13,pathTol:.0035,max:48,min:10}
 };
 
 async function template(){
@@ -116,10 +116,23 @@ function simplifyClosed(records,detail){
   return a.slice(0,-1).concat(b.slice(0,-1));
 }
 
+function evenlySpacedRecords(records,count,closed){
+  if(records.length<=count)return records.slice();
+  const out=[],used=new Set();
+  for(let i=0;i<count;i++){
+    const u=closed?i/count:i/Math.max(1,count-1);
+    const idx=closed?Math.floor(u*records.length):Math.round(u*(records.length-1));
+    if(!used.has(idx)){used.add(idx);out.push(records[idx])}
+  }
+  return out;
+}
+
 function simplifiedTubeSamples(item,detail,THREE){
-  const source=item.samples,settings=item.settings;
+  const source=item.samples,settings=item.settings,spec=DETAIL[detail]||DETAIL.medium;
   const records=source.map((s,i)=>({p:s.p.clone(),r:sampleRadius(s,settings,i,source.length,THREE)}));
-  const reduced=settings.loop===true?simplifyClosed(records,detail):simplifyOpen(records,detail);
+  let reduced=settings.loop===true?simplifyClosed(records,detail):simplifyOpen(records,detail);
+  const minimum=Math.min(records.length,spec.min);
+  if(reduced.length<minimum)reduced=evenlySpacedRecords(records,minimum,settings.loop===true);
   if(reduced.length<(settings.loop?3:2))return records;
   return reduced;
 }
