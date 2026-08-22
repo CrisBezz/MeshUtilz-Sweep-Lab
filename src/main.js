@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildBalloon,smoothRadii} from './balloonGeometry.js';
+import {buildOutlineBalloon} from './outlineGeometry.js';
 
 const host=document.querySelector('#viewport'),scene=new THREE.Scene();
 scene.background=new THREE.Color(0x22262d);
@@ -18,7 +19,7 @@ let orbitPivot=WORLD_ORIGIN.clone();
 const touchPointers=new Map();let pinchState=null,tapGesture=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 
-function uiSettings(){return{width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,loop:$('#loop').checked,caps:$('#caps').checked}}
+function uiSettings(){return{kind:$('#creation').value,width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,loop:$('#loop').checked,caps:$('#caps').checked}}
 function meshCenter(x){if(!x)return WORLD_ORIGIN.clone();x.mesh.updateMatrixWorld(true);const g=x.mesh.geometry;if(!g.boundingSphere)g.computeBoundingSphere();return g.boundingSphere?g.boundingSphere.center.clone().applyMatrix4(x.mesh.matrixWorld):x.mesh.getWorldPosition(new THREE.Vector3())}
 function setOrbitPivot(x){orbitPivot=x?meshCenter(x):WORLD_ORIGIN.clone()}
 function keepControlsAligned(){const d=Math.max(.1,camera.position.distanceTo(controls.target));const f=new THREE.Vector3();camera.getWorldDirection(f);controls.target.copy(camera.position).addScaledVector(f,d)}
@@ -69,22 +70,35 @@ function resample(samples,settings){
   }
   return{path,radii:smoothRadii(r,3)};
 }
-function rebuild(x){x.mesh.geometry.dispose();const {path,radii}=resample(x.samples,x.settings);x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,caps:x.settings.caps!==false,loop:x.settings.loop===true});x.mesh.material.wireframe=$('#wire').checked}
-function addItem(samples,settings=uiSettings(),autoSelect=true){const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material()),x={samples,settings:{bulge:.18,endSoft:.65,loop:false,caps:true,...settings},mesh};items.push(x);scene.add(mesh);rebuild(x);if(autoSelect)select(x);return x}
+function rebuild(x){
+  x.mesh.geometry.dispose();
+  if((x.settings.kind||'tube')==='outline'){
+    x.mesh.geometry=buildOutlineBalloon(x.samples.map(s=>s.p),{
+      depth:x.settings.width*(.7+x.settings.bulge*1.5),
+      roundness:THREE.MathUtils.clamp(.25+x.settings.bulge,0,1),
+      smooth:x.settings.smooth
+    });
+  }else{
+    const {path,radii}=resample(x.samples,x.settings);
+    x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,caps:x.settings.caps!==false,loop:x.settings.loop===true});
+  }
+  x.mesh.material.wireframe=$('#wire').checked;
+}
+function addItem(samples,settings=uiSettings(),autoSelect=true){const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material()),x={samples,settings:{kind:'tube',bulge:.18,endSoft:.65,loop:false,caps:true,...settings},mesh};items.push(x);scene.add(mesh);rebuild(x);if(autoSelect)select(x);return x}
 function updateStatus(){const verts=items.reduce((n,x)=>n+(x.mesh.geometry.getAttribute('position')?.count||0),0);status.textContent=`${items.length} balloon${items.length===1?'':'s'} • ${verts} vertices${selected?' • selected':''}`}
-function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#loop').checked=x.settings.loop===true;$('#caps').checked=x.settings.caps!==false;syncOutputs()}
-function updateSelectionUI(){const on=!!selected;$('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#selectionLabel').textContent=on?`Selected balloon ${items.indexOf(selected)+1}`:'No balloon selected'}
+function loadControls(x){$('#creation').value=x.settings.kind||'tube';$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#loop').checked=x.settings.loop===true;$('#caps').checked=x.settings.caps!==false;syncOutputs()}
+function updateSelectionUI(){const on=!!selected;$('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#selectionLabel').textContent=on?`Selected ${selected.settings.kind==='outline'?'outline':'tube'} balloon ${items.indexOf(selected)+1}`:'No balloon selected'}
 function select(x){if(selected)selected.mesh.material.emissive.setHex(0);selected=x;if(x){x.mesh.material.emissive.setHex(0x29405f);loadControls(x);setOrbitPivot(x)}else setOrbitPivot(null);updateSelectionUI();updateStatus()}
 function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');status.textContent=m==='draw'?'Draw: Pencil draws • 1 finger orbits • 2 fingers pan/pinch':'Orbit / Select: 1 finger rotates • 2 fingers pan/pinch • tap selects'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
-function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);setOrbitPivot(selected);refreshExport();updateStatus()}
+function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);setOrbitPivot(selected);refreshExport();updateSelectionUI();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.13\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.13.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.7.0\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.7.0.obj';a.classList.remove('disabled')}
 
-function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#plane').value==='VIEW'?'Drawing balloon on view plane…':'Drawing balloon…'}
+function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#creation').value==='outline'?'Drawing closed outline…':'Drawing tube balloon…'}
 function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
-function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDrawPlane=null;return}if(current.samples.length<2){disposeItem(current);items=items.filter(x=>x!==current);current=null;activeDrawPlane=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;activeDrawPlane=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
+function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDrawPlane=null;return}const minimum=current.settings.kind==='outline'?3:2;if(current.samples.length<minimum){disposeItem(current);items=items.filter(x=>x!==current);current=null;activeDrawPlane=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;activeDrawPlane=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
 function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false}}
 function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;const speed=.006;const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-dx*speed);const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const pitch=new THREE.Quaternion().setFromAxisAngle(right,-dy*speed);const offset=camera.position.clone().sub(orbitPivot).applyQuaternion(yaw).applyQuaternion(pitch);camera.position.copy(orbitPivot).add(offset);camera.quaternion.premultiply(yaw).premultiply(pitch).normalize();keepControlsAligned()}
 function finishOrbitTap(e){if(orbitTap&&orbitTap.id===e.pointerId&&!orbitTap.moved&&mode==='orbit'){eventRay(e);const hits=ray.intersectObjects(items.map(x=>x.mesh),false);select(hits.length?items.find(x=>x.mesh===hits[0].object):null)}orbitTap=null}
@@ -148,8 +162,9 @@ renderer.domElement.addEventListener('pointerup',e=>{if(e.pointerType==='touch')
 renderer.domElement.addEventListener('pointercancel',e=>{if(e.pointerType==='touch'){touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;tapGesture=null;return}if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()},{capture:true});
 
 $('#drawBtn').onclick=()=>setMode('draw');$('#orbitBtn').onclick=()=>setMode('orbit');
+$('#creation').addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#creation').value==='outline'?'New balloons: closed outline fill':'New balloons: tube stroke'});
 ['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
-['loop','caps'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#loop').checked?'New balloons: looped':($('#caps').checked?'New balloons: open path with caps':'New balloons: open path without caps')}));
+['loop','caps'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#loop').checked?'New tube balloons: looped':($('#caps').checked?'New tube balloons: open path with caps':'New tube balloons: open path without caps')}));
 $('#wire').oninput=()=>{items.forEach(rebuild);refreshExport()};$('#applyBtn').onclick=()=>applySelected(true);
 $('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(s=>({p:s.p.clone(),pressure:s.pressure})),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
 $('#undoBtn').onclick=doUndo;$('#redoBtn').onclick=doRedo;
