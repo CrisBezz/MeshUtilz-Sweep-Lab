@@ -60,7 +60,7 @@ function interiorCenter(poly){
   return best;
 }
 
-export function buildOutlineBalloon(points,{depth=.42,roundness=.18,smooth=5}={}){
+export function buildOutlineBalloon(points,{depth=.42,roundness=.18,edgeRoundness=.72,smooth=5}={}){
   if(points.length<3)return new THREE.BufferGeometry();
 
   const simplified=simplifyClosed(points,Math.max(.018,depth*.045));
@@ -86,46 +86,65 @@ export function buildOutlineBalloon(points,{depth=.42,roundness=.18,smooth=5}={}
 
   const center=interiorCenter(pts2);
   const half=Math.max(.01,depth*.5);
-  const rings=Math.max(10,Math.min(22,Math.round(12+roundness*10)));
-  const verts=[],idx=[];
+  const edge=THREE.MathUtils.clamp(edgeRoundness,0,1);
+  const superN=THREE.MathUtils.lerp(1.25,5.0,edge);
+  const power=2/superN;
+  const rings=Math.max(12,Math.min(28,Math.round(14+roundness*8+edge*6)));
   const ringCount=pts2.length;
+  const verts=[],idx=[];
 
-  // Elliptical section from outline to pole. Using scale=cos(theta), z=sin(theta)
-  // gives the front/back skins a vertical tangent at the seam, so they meet smoothly
-  // instead of forming a sharp crease around the drawn outline.
+  // One shared rim ring is used by BOTH sides. This is important: the front and
+  // back no longer have duplicated seam vertices, so vertex normals can flow
+  // continuously around the edge instead of producing a visible crease.
+  for(const p of pts2)verts.push(p.x,p.y,0);
+  const rimStart=0;
+
+  const sideStarts=[];
+  const poles=[];
   for(let side=0;side<2;side++){
     const sign=side===0?1:-1;
-    for(let r=0;r<rings;r++){
-      const t=r/(rings-1);
+    const firstInterior=verts.length/3;
+    sideStarts.push(firstInterior);
+
+    // Superellipse section. edgeRoundness controls how broad/soft the turn from
+    // the drawn outline into the front/back surface is.
+    for(let r=1;r<rings;r++){
+      const t=r/rings;
       const theta=t*Math.PI*.5;
-      const scale=Math.cos(theta);
-      const z=sign*half*Math.sin(theta);
+      const scale=Math.pow(Math.max(0,Math.cos(theta)),power);
+      const z=sign*half*Math.pow(Math.max(0,Math.sin(theta)),power);
       for(let i=0;i<ringCount;i++){
         const q=center.clone().lerp(pts2[i],scale);
         verts.push(q.x,q.y,z);
       }
     }
+
     const pole=verts.length/3;
+    poles.push(pole);
     verts.push(center.x,center.y,sign*half);
-    for(let r=0;r<rings-1;r++){
-      const a0=side*(rings*ringCount+1)+r*ringCount;
-      const b0=a0+ringCount;
+
+    // Shared rim -> first interior ring.
+    const first=firstInterior;
+    for(let i=0;i<ringCount;i++){
+      const ni=(i+1)%ringCount,a=rimStart+i,b=rimStart+ni,c=first+ni,d=first+i;
+      if(side===0)idx.push(a,b,d,b,c,d);else idx.push(a,d,b,b,d,c);
+    }
+
+    // Interior rings.
+    const interiorRingCount=rings-1;
+    for(let r=0;r<interiorRingCount-1;r++){
+      const a0=firstInterior+r*ringCount,b0=a0+ringCount;
       for(let i=0;i<ringCount;i++){
         const ni=(i+1)%ringCount,a=a0+i,b=a0+ni,c=b0+ni,d=b0+i;
         if(side===0)idx.push(a,b,d,b,c,d);else idx.push(a,d,b,b,d,c);
       }
     }
-    const last0=side*(rings*ringCount+1)+(rings-1)*ringCount;
+
+    const last0=firstInterior+(interiorRingCount-1)*ringCount;
     for(let i=0;i<ringCount;i++){
       const ni=(i+1)%ringCount;
       if(side===0)idx.push(last0+i,last0+ni,pole);else idx.push(last0+ni,last0+i,pole);
     }
-  }
-
-  const bottomStart=rings*ringCount+1;
-  for(let i=0;i<ringCount;i++){
-    const ni=(i+1)%ringCount,a=i,b=ni,c=bottomStart+ni,d=bottomStart+i;
-    idx.push(a,d,b,b,d,c);
   }
 
   const g=new THREE.BufferGeometry();
