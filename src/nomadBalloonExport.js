@@ -228,6 +228,15 @@ function fieldLike(seed,type,count,offset,length){
   return out;
 }
 
+function mergeTrianglePair(a,b){
+  const edges=[[a[0],a[1]],[a[1],a[2]],[a[2],a[0]],[b[0],b[1]],[b[1],b[2]],[b[2],b[0]]],border=[];
+  for(let i=0;i<edges.length;i++){const [from,to]=edges[i];if(!edges.some((edge,j)=>j!==i&&edge[0]===to&&edge[1]===from))border.push([from,to])}
+  if(border.length!==4)return null;
+  const quad=[border[0][0],border[0][1]];
+  while(quad.length<4){const next=border.find(edge=>edge[0]===quad.at(-1)&&!quad.includes(edge[1]));if(!next)return null;quad.push(next[1])}
+  return border.some(edge=>edge[0]===quad[3]&&edge[1]===quad[0])?quad:null;
+}
+
 function outlineMeshPart(item,donorMesh,THREE){
   const g=item.mesh.geometry,pos=g.getAttribute('position'),index=g.index;
   if(!pos||pos.count<3||!index||index.count<3)throw Error('Outline Balloon has no indexed triangle mesh to export');
@@ -241,25 +250,24 @@ function outlineMeshPart(item,donorMesh,THREE){
     if(normalAttr)n.fromBufferAttribute(normalAttr,i).applyNormalMatrix(normalMatrix).normalize();else n.set(0,1,0);
     nDv.setFloat32(o,n.x,true);nDv.setFloat32(o+4,n.y,true);nDv.setFloat32(o+8,n.z,true);
   }
-  const faceType=donorMesh.faces?.type||'i32vec4',faceCount=Math.floor(index.count/3);
-  const signed=faceType.startsWith('i32'),unsigned=faceType.startsWith('u32'),vec4=faceType.endsWith('vec4'),vec3=faceType.endsWith('vec3');
-  if((!signed&&!unsigned)||(!vec4&&!vec3))throw Error(`Unsupported Nomad face buffer type: ${faceType}`);
-  const stride=vec4?16:12,faceBytes=new Uint8Array(faceCount*stride),fDv=new DataView(faceBytes.buffer);
-  for(let f=0;f<faceCount;f++){
-    const o=f*stride,a=index.getX(f*3),b=index.getX(f*3+1),c=index.getX(f*3+2),set=unsigned?'setUint32':'setInt32';
-    fDv[set](o,a,true);fDv[set](o+4,b,true);fDv[set](o+8,c,true);if(vec4)fDv[set](o+12,unsigned?0xffffffff:-1,true);
-  }
-  const bin=new Uint8Array(vertexBytes.length+normalBytes.length+faceBytes.length);
-  const normalOffset=vertexBytes.length,faceOffset=normalOffset+normalBytes.length;
-  bin.set(vertexBytes,0);bin.set(normalBytes,normalOffset);bin.set(faceBytes,faceOffset);
+  const triangles=[];for(let i=0;i<index.count;i+=3)triangles.push([index.getX(i),index.getX(i+1),index.getX(i+2)]);
+  const quads=[];for(let i=0;i<triangles.length;){const quad=i+1<triangles.length?mergeTrianglePair(triangles[i],triangles[i+1]):null;if(quad){quads.push(quad);i+=2}else{const [a,b,c]=triangles[i++];quads.push([a,b,c,c])}}
+  const faceCount=quads.length,faceBytes=new Uint8Array(faceCount*16),fDv=new DataView(faceBytes.buffer);
+  for(let f=0;f<faceCount;f++){const o=f*16,q=quads[f];for(let j=0;j<4;j++)fDv.setInt32(o+j*4,q[j],true)}
+  const uvBytes=new Uint8Array(pos.count*8),faceUvBytes=faceBytes.slice();
+  const bin=new Uint8Array(vertexBytes.length+normalBytes.length+uvBytes.length+faceBytes.length+faceUvBytes.length);
+  const normalOffset=vertexBytes.length,uvOffset=normalOffset+normalBytes.length,faceOffset=uvOffset+uvBytes.length,faceUvOffset=faceOffset+faceBytes.length;
+  bin.set(vertexBytes,0);bin.set(normalBytes,normalOffset);bin.set(uvBytes,uvOffset);bin.set(faceBytes,faceOffset);bin.set(faceUvBytes,faceUvOffset);
   const mesh=clone(donorMesh);
-  delete mesh.config_tube;
+  for(const key of Object.keys(mesh))if(key.startsWith('config_'))delete mesh[key];
   mesh.mesh_type='mesh';
   for(const key of DATA_FIELDS)delete mesh[key];
   mesh.name='Outline Balloon Mesh';
   mesh.vertices=fieldLike(donorMesh.vertices,'f32vec3',pos.count,0,vertexBytes.length);
   mesh.normals=fieldLike(donorMesh.normals,'f32vec3',pos.count,normalOffset,normalBytes.length);
-  mesh.faces=fieldLike(donorMesh.faces,faceType,faceCount,faceOffset,faceBytes.length);
+  mesh.uvs=fieldLike(donorMesh.uvs,'f32vec2',pos.count,uvOffset,uvBytes.length);
+  mesh.faces=fieldLike(donorMesh.faces,'i32vec4',faceCount,faceOffset,faceBytes.length);
+  mesh.faces_uv=fieldLike(donorMesh.faces_uv,'i32vec4',faceCount,faceUvOffset,faceUvBytes.length);
   return {mesh,bin,vertices:pos.count,faces:faceCount};
 }
 
