@@ -1,7 +1,5 @@
-// Builds native Nomad Sculpt projects from the validated editable Tube template
-// previously proven in MeshUtilz. Each Balloon Tube remains an independent live Tube.
-// v0.8.2 keeps the proven live Tube/radius pipeline and simplifies only the procedural
-// control points exported to Nomad, leaving MeshUtilz Balloon geometry untouched.
+// Builds native Nomad Sculpt projects from the validated editable Tube template.
+// v0.8.3 keeps Tube Balloons live/editable and adds Outline Balloons as fixed meshes.
 const TEMPLATE_URL='./src/templates/nomad-tube.nom';
 const enc=new TextEncoder(),dec=new TextDecoder();
 const u64=(dv,o)=>Number(dv.getBigUint64(o,true));
@@ -120,10 +118,7 @@ function simplifyClosed(records,detail){
 
 function simplifiedTubeSamples(item,detail,THREE){
   const source=item.samples,settings=item.settings;
-  const records=source.map((s,i)=>({
-    p:s.p.clone(),
-    r:sampleRadius(s,settings,i,source.length,THREE)
-  }));
+  const records=source.map((s,i)=>({p:s.p.clone(),r:sampleRadius(s,settings,i,source.length,THREE)}));
   const reduced=settings.loop===true?simplifyClosed(records,detail):simplifyOpen(records,detail);
   if(reduced.length<(settings.loop?3:2))return records;
   return reduced;
@@ -139,17 +134,11 @@ function configureTube(mesh,item,detail,THREE){
   cfg.cap_start=settings.caps!==false;
   cfg.cap_end=settings.caps!==false;
   cfg.radiuses=records.map(x=>x.r);
-
-  // Nomad stores the active per-point Tube edit mode in config_tube.edit_radius.
-  // A Nomad-authored reference Tube with every control point in Radius mode uses "all".
-  // Without this, the radius array can be present but Nomad initially treats the points
-  // as ordinary curve-position points, so the varying thickness is not displayed.
   cfg.edit_radius='all';
   cfg.edit_rotate='none';
   cfg.edit_profile='none';
   cfg.edit_hole='none';
   cfg.edit_spiral='none';
-
   cfg.rotates=records.map(()=>0);
   cfg.spirals=records.map(()=>0);
   if(Array.isArray(cfg.profiles)&&cfg.profiles.length){
@@ -181,17 +170,14 @@ function deformTubeCache(donorBin,mesh,sourceConfig,THREE){
   if(!field||field.type!=='f32vec3'||!Number.isFinite(field.count))throw Error('Nomad Tube template has no editable f32vec3 vertex cache');
   if(field.lz4)throw Error('Compressed/LZ4 Tube vertex caches are not supported by this exporter');
   if(field.offset<0||field.offset+field.count*12>bin.length)throw Error('Nomad Tube donor vertex cache is outside the binary slice');
-
   const sourcePoints=sourceConfig?.curve?.points||[],a0=sourcePoints[0],b0=sourcePoints.at(-1);
   if(!a0||!b0)throw Error('Nomad Tube donor curve is invalid');
   const sourceA=new THREE.Vector3(...a0),sourceB=new THREE.Vector3(...b0),sourceAxis=sourceB.clone().sub(sourceA),sourceLength=sourceAxis.length();
   if(!(sourceLength>1e-8))throw Error('Nomad Tube donor curve has zero length');
   sourceAxis.multiplyScalar(1/sourceLength);
-
   const helper=Math.abs(sourceAxis.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1);
   const sourceN=helper.clone().sub(sourceAxis.clone().multiplyScalar(helper.dot(sourceAxis))).normalize();
   const sourceBino=new THREE.Vector3().crossVectors(sourceAxis,sourceN).normalize();
-
   const cfg=mesh.config_tube,targetPoints=cfg.curve.points.map(p=>new THREE.Vector3(...p)),closed=!!cfg.curve.closed;
   const curve=new THREE.CatmullRomCurve3(targetPoints,closed,'centripetal',.5);
   const segments=Math.max(64,Math.min(512,targetPoints.length*24));
@@ -199,7 +185,6 @@ function deformTubeCache(donorBin,mesh,sourceConfig,THREE){
   const sourceRadiusFallback=Math.max(1e-8,Number(sourceConfig?.radiuses?.[0])||.5);
   const dv=new DataView(bin.buffer,bin.byteOffset,bin.byteLength);
   const p=new THREE.Vector3(),axisPoint=new THREE.Vector3(),radial=new THREE.Vector3();
-
   for(let i=0;i<field.count;i++){
     const o=field.offset+i*12;
     p.set(dv.getFloat32(o,true),dv.getFloat32(o+4,true),dv.getFloat32(o+8,true));
@@ -212,7 +197,6 @@ function deformTubeCache(donorBin,mesh,sourceConfig,THREE){
     const q=center.clone().addScaledVector(frame.normal,rx*scale).addScaledVector(frame.binormal,rz*scale);
     dv.setFloat32(o,q.x,true);dv.setFloat32(o+4,q.y,true);dv.setFloat32(o+8,q.z,true);
   }
-
   const normals=mesh.normals;
   if(normals?.type==='f32vec3'&&!normals.lz4&&Number.isFinite(normals.count)&&normals.offset>=0&&normals.offset+normals.count*12<=bin.length){
     const sourceView=new DataView(donorBin.buffer,donorBin.byteOffset,donorBin.byteLength);
@@ -238,34 +222,79 @@ function findNode(nodes,meshIndex=0){
   return null;
 }
 
+function fieldLike(seed,type,count,offset,length){
+  const out=seed?clone(seed):{};
+  out.type=type;out.count=count;out.offset=offset;out.length=length;out.lz4=false;
+  return out;
+}
+
+function outlineMeshPart(item,donorMesh,THREE){
+  const g=item.mesh.geometry,pos=g.getAttribute('position'),index=g.index;
+  if(!pos||pos.count<3||!index||index.count<3)throw Error('Outline Balloon has no indexed triangle mesh to export');
+  item.mesh.updateMatrixWorld(true);
+  const normalAttr=g.getAttribute('normal'),normalMatrix=new THREE.Matrix3().getNormalMatrix(item.mesh.matrixWorld);
+  const vertexBytes=new Uint8Array(pos.count*12),vDv=new DataView(vertexBytes.buffer),v=new THREE.Vector3(),n=new THREE.Vector3();
+  const normalBytes=new Uint8Array(pos.count*12),nDv=new DataView(normalBytes.buffer);
+  for(let i=0;i<pos.count;i++){
+    v.fromBufferAttribute(pos,i).applyMatrix4(item.mesh.matrixWorld);
+    let o=i*12;vDv.setFloat32(o,v.x,true);vDv.setFloat32(o+4,v.y,true);vDv.setFloat32(o+8,v.z,true);
+    if(normalAttr)n.fromBufferAttribute(normalAttr,i).applyNormalMatrix(normalMatrix).normalize();else n.set(0,1,0);
+    nDv.setFloat32(o,n.x,true);nDv.setFloat32(o+4,n.y,true);nDv.setFloat32(o+8,n.z,true);
+  }
+  const faceType=donorMesh.faces?.type||'i32vec4',faceCount=Math.floor(index.count/3);
+  const signed=faceType.startsWith('i32'),unsigned=faceType.startsWith('u32'),vec4=faceType.endsWith('vec4'),vec3=faceType.endsWith('vec3');
+  if((!signed&&!unsigned)||(!vec4&&!vec3))throw Error(`Unsupported Nomad face buffer type: ${faceType}`);
+  const stride=vec4?16:12,faceBytes=new Uint8Array(faceCount*stride),fDv=new DataView(faceBytes.buffer);
+  for(let f=0;f<faceCount;f++){
+    const o=f*stride,a=index.getX(f*3),b=index.getX(f*3+1),c=index.getX(f*3+2),set=unsigned?'setUint32':'setInt32';
+    fDv[set](o,a,true);fDv[set](o+4,b,true);fDv[set](o+8,c,true);if(vec4)fDv[set](o+12,unsigned?0xffffffff:-1,true);
+  }
+  const bin=new Uint8Array(vertexBytes.length+normalBytes.length+faceBytes.length);
+  const normalOffset=vertexBytes.length,faceOffset=normalOffset+normalBytes.length;
+  bin.set(vertexBytes,0);bin.set(normalBytes,normalOffset);bin.set(faceBytes,faceOffset);
+  const mesh=clone(donorMesh);
+  delete mesh.config_tube;
+  for(const key of DATA_FIELDS)delete mesh[key];
+  mesh.name='Outline Balloon Mesh';
+  mesh.vertices=fieldLike(donorMesh.vertices,'f32vec3',pos.count,0,vertexBytes.length);
+  mesh.normals=fieldLike(donorMesh.normals,'f32vec3',pos.count,normalOffset,normalBytes.length);
+  mesh.faces=fieldLike(donorMesh.faces,faceType,faceCount,faceOffset,faceBytes.length);
+  return {mesh,bin,vertices:pos.count,faces:faceCount};
+}
+
+function makeNode(proto,name,meshIndex){
+  const node=clone(proto);
+  node.name=name;node.mesh=meshIndex;node.matrix=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];node.transform_reset=false;node.selected=false;node.selected_main=false;node.node_collapse=true;node.lock=false;node.children=[];node.visible=true;
+  delete node.hid;delete node.group;
+  return node;
+}
+
 export async function buildLiveNomadBalloon(items,THREE,options={}){
-  const detail=(options.detail||'medium').toLowerCase();
+  const detail=(options.detail||'high').toLowerCase();
   const tubes=items.filter(x=>(x.settings.kind||'tube')==='tube'&&x.samples.length>=2);
-  if(!tubes.length)throw Error('Create at least one Tube Balloon before exporting Live NOM.');
+  const outlines=items.filter(x=>x.settings.kind==='outline'&&(x.mesh.geometry.getAttribute('position')?.count||0)>=3&&x.mesh.geometry.index?.count>=3);
+  if(!tubes.length&&!outlines.length)throw Error('Create at least one Tube or Outline Balloon before exporting NOM.');
   const base=await template(),donor=meshSlice(base,base.json.meshes[0]);
   if(!donor.bin.length)throw Error('Nomad Tube template has no usable donor mesh cache');
-
   const project=clone(base.json),binaryParts=[];project.meshes=[];
   const proto=findNode(base.json.scene,0)||{};
   const group={name:'MeshUtilz – Live Nomad Balloons',group:0,selected:true,selected_main:true,children:[],visible:true,node_collapse:false,lock:false};
-  let sourcePoints=0,exportPoints=0;
-
+  let sourcePoints=0,exportPoints=0,outlineVertices=0,outlineFaces=0;
   tubes.forEach((item,i)=>{
     const mesh=clone(donor.mesh),sourceConfig=clone(mesh.config_tube);
     const counts=configureTube(mesh,item,detail,THREE);sourcePoints+=counts.source;exportPoints+=counts.exported;
     const bin=deformTubeCache(donor.bin,mesh,sourceConfig,THREE),offset=binaryParts.reduce((n,p)=>n+p.length,0);
-    offsetFields(mesh,offset);
-    project.meshes.push(mesh);binaryParts.push(bin);
-
-    const node=clone(proto);
-    node.name=`Tube Balloon ${i+1}`;node.mesh=i;node.matrix=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];node.transform_reset=false;node.selected=false;node.selected_main=false;node.node_collapse=true;node.lock=false;node.children=[];node.visible=true;
-    delete node.hid;delete node.group;
-    group.children.push(node);
+    offsetFields(mesh,offset);const meshIndex=project.meshes.length;project.meshes.push(mesh);binaryParts.push(bin);
+    group.children.push(makeNode(proto,`Tube Balloon ${i+1}`,meshIndex));
+  });
+  outlines.forEach((item,i)=>{
+    const part=outlineMeshPart(item,donor.mesh,THREE),offset=binaryParts.reduce((n,p)=>n+p.length,0);
+    offsetFields(part.mesh,offset);const meshIndex=project.meshes.length;project.meshes.push(part.mesh);binaryParts.push(part.bin);
+    outlineVertices+=part.vertices;outlineFaces+=part.faces;group.children.push(makeNode(proto,`Outline Balloon ${i+1}`,meshIndex));
   });
   project.scene=[group];
-
   const json=enc.encode(JSON.stringify(project)),binaryLength=binaryParts.reduce((n,b)=>n+b.length,0),binaryOffset=(base.jo+json.length+7)&~7,out=new Uint8Array(binaryOffset+binaryLength);
   out.set(base.bytes.slice(0,base.jo));out.set(json,base.jo);let at=binaryOffset;for(const part of binaryParts){out.set(part,at);at+=part.length}
   const dv=new DataView(out.buffer);w64(dv,16,out.length);w64(dv,24,base.jo);w64(dv,32,json.length);w64(dv,40,binaryOffset);w64(dv,48,binaryLength);
-  return {bytes:out,count:tubes.length,sourcePoints,exportPoints,detail};
+  return {bytes:out,count:tubes.length+outlines.length,tubeCount:tubes.length,outlineCount:outlines.length,sourcePoints,exportPoints,outlineVertices,outlineFaces,detail};
 }
