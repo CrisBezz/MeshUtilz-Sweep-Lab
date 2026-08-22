@@ -7,7 +7,7 @@ scene.background=new THREE.Color(0x22262d);
 const WORLD_ORIGIN=new THREE.Vector3(0,0,0);
 const camera=new THREE.PerspectiveCamera(50,1,.01,1000);camera.position.set(7,7,7);
 const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.appendChild(renderer.domElement);
-const controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(WORLD_ORIGIN);controls.enableDamping=true;controls.enabled=true;controls.enableRotate=false;controls.enablePan=true;controls.enableZoom=false;
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(WORLD_ORIGIN);controls.enableDamping=true;controls.enabled=true;controls.enableRotate=false;controls.enablePan=false;controls.enableZoom=false;
 scene.add(new THREE.HemisphereLight(0xffffff,0x444444,2.2));const dl=new THREE.DirectionalLight(0xffffff,2);dl.position.set(5,8,4);scene.add(dl);
 scene.add(new THREE.GridHelper(20,40,0x657080,0x343a44));
 scene.add(new THREE.AxesHelper(0.75));
@@ -47,7 +47,6 @@ function resample(samples,settings){
     const bodyShape=Math.sin(Math.PI*u);
     const inflation=1+settings.bulge*Math.pow(Math.max(0,bodyShape),0.7);
     let radius=base*pressureFactor*inflation;
-    // End taper only belongs to a capped balloon. Open balloons keep a real open mouth.
     if(settings.closed&&settings.taper){
       const edge=Math.min(u,1-u);
       const span=THREE.MathUtils.lerp(0.035,0.2,settings.endSoft);
@@ -65,7 +64,7 @@ function updateStatus(){const verts=items.reduce((n,x)=>n+(x.mesh.geometry.getAt
 function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#closed').checked=x.settings.closed===true;syncOutputs()}
 function updateSelectionUI(){const on=!!selected;$('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#selectionLabel').textContent=on?`Selected balloon ${items.indexOf(selected)+1}`:'No balloon selected'}
 function select(x){if(selected)selected.mesh.material.emissive.setHex(0);selected=x;if(x){x.mesh.material.emissive.setHex(0x29405f);loadControls(x);setOrbitPivot(x)}else setOrbitPivot(null);updateSelectionUI();updateStatus()}
-function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');status.textContent=m==='draw'?'Draw: Pencil draws • finger orbits • pinch zooms':'Orbit / Select: finger rotates • pinch zooms • tap selects'}
+function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');status.textContent=m==='draw'?'Draw: Pencil draws • 1 finger orbits • 2 fingers pan/pinch':'Orbit / Select: 1 finger rotates • 2 fingers pan/pinch • tap selects'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);setOrbitPivot(selected);refreshExport();updateStatus()}
 
@@ -78,9 +77,40 @@ function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDraw
 function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false}}
 function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;const speed=.006;const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-dx*speed);const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const pitch=new THREE.Quaternion().setFromAxisAngle(right,-dy*speed);const offset=camera.position.clone().sub(orbitPivot).applyQuaternion(yaw).applyQuaternion(pitch);camera.position.copy(orbitPivot).add(offset);camera.quaternion.premultiply(yaw).premultiply(pitch).normalize();keepControlsAligned()}
 function finishOrbitTap(e){if(orbitTap&&orbitTap.id===e.pointerId&&!orbitTap.moved&&mode==='orbit'){eventRay(e);const hits=ray.intersectObjects(items.map(x=>x.mesh),false);select(hits.length?items.find(x=>x.mesh===hits[0].object):null)}orbitTap=null}
-function touchDistance(){const pts=[...touchPointers.values()];return pts.length<2?0:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y)}
-function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}if(touchPointers.size===2){orbitTap=null;pinchState={distance:Math.max(1,touchDistance())}}}
-function touchMove(e){if(!touchPointers.has(e.pointerId))return;touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size>=2){const d=Math.max(1,touchDistance());if(!pinchState)pinchState={distance:d};const ratio=d/pinchState.distance;if(Math.abs(ratio-1)>.002){const forward=new THREE.Vector3();camera.getWorldDirection(forward);const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));let step=Math.log(ratio)*scale*.85;const next=camera.position.clone().addScaledVector(forward,step);const minDist=.18,maxDist=250;const dist=next.distanceTo(orbitPivot);if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);if(dist<=maxDist)camera.position.addScaledVector(forward,step);keepControlsAligned()}pinchState.distance=d;return}trackOrbitMove(e)}
+function touchMetrics(){const pts=[...touchPointers.values()];if(pts.length<2)return null;const a=pts[0],b=pts[1];return{distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),cx:(a.x+b.x)/2,cy:(a.y+b.y)/2}}
+function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}if(touchPointers.size===2){orbitTap=null;pinchState=touchMetrics()}}
+function panView(dx,dy){
+  const h=Math.max(1,renderer.domElement.clientHeight);
+  const dist=Math.max(.2,camera.position.distanceTo(orbitPivot));
+  const worldPerPixel=2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))/h;
+  const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();
+  const up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize();
+  const delta=right.multiplyScalar(-dx*worldPerPixel).addScaledVector(up,dy*worldPerPixel);
+  camera.position.add(delta);orbitPivot.add(delta);controls.target.add(delta);
+}
+function touchMove(e){
+  if(!touchPointers.has(e.pointerId))return;
+  touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(touchPointers.size>=2){
+    const m=touchMetrics();if(!m)return;
+    if(!pinchState)pinchState=m;
+    const panDx=m.cx-pinchState.cx,panDy=m.cy-pinchState.cy;
+    if(Math.hypot(panDx,panDy)>.05)panView(panDx,panDy);
+    const ratio=m.distance/pinchState.distance;
+    if(Math.abs(ratio-1)>.002){
+      const forward=new THREE.Vector3();camera.getWorldDirection(forward);
+      const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));
+      let step=Math.log(ratio)*scale*.85;
+      const next=camera.position.clone().addScaledVector(forward,step);
+      const minDist=.18,maxDist=250,dist=next.distanceTo(orbitPivot);
+      if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);
+      if(dist<=maxDist)camera.position.addScaledVector(forward,step);
+      keepControlsAligned();
+    }
+    pinchState=m;return;
+  }
+  trackOrbitMove(e);
+}
 function touchUp(e){const wasSingle=touchPointers.size===1;if(wasSingle)finishOrbitTap(e);touchPointers.delete(e.pointerId);if(touchPointers.size<2)pinchState=null;if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}else if(touchPointers.size===0)orbitTap=null}
 
 renderer.domElement.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchDown(e);return}if(mode==='orbit'){trackOrbitDown(e);return}e.stopImmediatePropagation();startDraw(e)},{capture:true});
