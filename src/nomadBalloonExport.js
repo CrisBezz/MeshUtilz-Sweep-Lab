@@ -108,7 +108,6 @@ function simplifyOpen(records,detail){
 
 function simplifyClosed(records,detail){
   if(records.length<=6)return records.slice();
-  // Split the loop at the point furthest from point 0, simplify both arcs, then join them.
   let far=1,farD=-1;
   for(let i=1;i<records.length;i++){
     const d=records[0].p.distanceToSquared(records[i].p);
@@ -126,7 +125,6 @@ function simplifiedTubeSamples(item,detail,THREE){
     r:sampleRadius(s,settings,i,source.length,THREE)
   }));
   const reduced=settings.loop===true?simplifyClosed(records,detail):simplifyOpen(records,detail);
-  // Never allow simplification to make a valid live Tube unusable.
   if(reduced.length<(settings.loop?3:2))return records;
   return reduced;
 }
@@ -141,6 +139,17 @@ function configureTube(mesh,item,detail,THREE){
   cfg.cap_start=settings.caps!==false;
   cfg.cap_end=settings.caps!==false;
   cfg.radiuses=records.map(x=>x.r);
+
+  // Nomad stores the active per-point Tube edit mode in config_tube.edit_radius.
+  // A Nomad-authored reference Tube with every control point in Radius mode uses "all".
+  // Without this, the radius array can be present but Nomad initially treats the points
+  // as ordinary curve-position points, so the varying thickness is not displayed.
+  cfg.edit_radius='all';
+  cfg.edit_rotate='none';
+  cfg.edit_profile='none';
+  cfg.edit_hole='none';
+  cfg.edit_spiral='none';
+
   cfg.rotates=records.map(()=>0);
   cfg.spirals=records.map(()=>0);
   if(Array.isArray(cfg.profiles)&&cfg.profiles.length){
