@@ -263,6 +263,9 @@ function outlineMeshPart(item,donorMesh,THREE){
   mesh.mesh_type='mesh';
   for(const key of DATA_FIELDS)delete mesh[key];
   mesh.name='Outline Balloon Mesh';
+  mesh.count_vertex=pos.count;
+  mesh.count_uv=pos.count;
+  mesh.count_face=faceCount;
   mesh.vertices=fieldLike(donorMesh.vertices,'f32vec3',pos.count,0,vertexBytes.length);
   mesh.normals=fieldLike(donorMesh.normals,'f32vec3',pos.count,normalOffset,normalBytes.length);
   mesh.uvs=fieldLike(donorMesh.uvs,'f32vec2',pos.count,uvOffset,uvBytes.length);
