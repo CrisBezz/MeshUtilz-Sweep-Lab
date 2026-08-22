@@ -32,7 +32,7 @@ export function smoothRadii(values,passes=2){
   return out;
 }
 
-export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
+export function buildBalloon(path,radii,{sides=16,capRings=5,closed=false}={}){
   if(path.length<2)return new THREE.BufferGeometry();
   const {tangents,normals,binormals}=computeFrames(path);
   const verts=[],vnorms=[],idx=[],ringMeta=[];
@@ -50,34 +50,42 @@ export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
     ringMeta.push(start);
   };
 
-  const startR=Math.max(0.001,radii[0]);
-  const startT=tangents[0],startN=normals[0],startB=binormals[0],startP=path[0];
-  const startPole=startP.clone().addScaledVector(startT,-startR);
-  const startPoleIndex=verts.length/3;
-  verts.push(startPole.x,startPole.y,startPole.z);
-  vnorms.push(-startT.x,-startT.y,-startT.z);
-  for(let k=1;k<=capRings;k++){
-    const u=k/(capRings+1),theta=u*Math.PI/2;
-    const center=startP.clone().addScaledVector(startT,-Math.cos(theta)*startR);
-    pushRing(center,startN,startB,Math.sin(theta)*startR,startP);
+  let startPoleIndex=-1,endPoleIndex=-1;
+
+  if(closed){
+    const startR=Math.max(0.001,radii[0]);
+    const startT=tangents[0],startN=normals[0],startB=binormals[0],startP=path[0];
+    const startPole=startP.clone().addScaledVector(startT,-startR);
+    startPoleIndex=verts.length/3;
+    verts.push(startPole.x,startPole.y,startPole.z);
+    vnorms.push(-startT.x,-startT.y,-startT.z);
+    for(let k=1;k<=capRings;k++){
+      const u=k/(capRings+1),theta=u*Math.PI/2;
+      const center=startP.clone().addScaledVector(startT,-Math.cos(theta)*startR);
+      pushRing(center,startN,startB,Math.sin(theta)*startR,startP);
+    }
   }
 
   for(let i=0;i<path.length;i++) pushRing(path[i],normals[i],binormals[i],Math.max(0.001,radii[i]));
 
-  const endR=Math.max(0.001,radii[radii.length-1]);
-  const endT=tangents.at(-1),endN=normals.at(-1),endB=binormals.at(-1),endP=path.at(-1);
-  for(let k=1;k<=capRings;k++){
-    const u=k/(capRings+1),theta=u*Math.PI/2;
-    const center=endP.clone().addScaledVector(endT,Math.sin(theta)*endR);
-    pushRing(center,endN,endB,Math.cos(theta)*endR,endP);
+  if(closed){
+    const endR=Math.max(0.001,radii[radii.length-1]);
+    const endT=tangents.at(-1),endN=normals.at(-1),endB=binormals.at(-1),endP=path.at(-1);
+    for(let k=1;k<=capRings;k++){
+      const u=k/(capRings+1),theta=u*Math.PI/2;
+      const center=endP.clone().addScaledVector(endT,Math.sin(theta)*endR);
+      pushRing(center,endN,endB,Math.cos(theta)*endR,endP);
+    }
+    const endPole=endP.clone().addScaledVector(endT,endR);
+    endPoleIndex=verts.length/3;
+    verts.push(endPole.x,endPole.y,endPole.z);
+    vnorms.push(endT.x,endT.y,endT.z);
   }
-  const endPole=endP.clone().addScaledVector(endT,endR);
-  const endPoleIndex=verts.length/3;
-  verts.push(endPole.x,endPole.y,endPole.z);
-  vnorms.push(endT.x,endT.y,endT.z);
 
-  const firstRing=ringMeta[0];
-  for(let j=0;j<sides;j++) idx.push(startPoleIndex,firstRing+(j+1)%sides,firstRing+j);
+  if(closed){
+    const firstRing=ringMeta[0];
+    for(let j=0;j<sides;j++) idx.push(startPoleIndex,firstRing+(j+1)%sides,firstRing+j);
+  }
 
   for(let r=0;r<ringMeta.length-1;r++){
     const a0=ringMeta[r],b0=ringMeta[r+1];
@@ -87,8 +95,10 @@ export function buildBalloon(path,radii,{sides=16,capRings=5}={}){
     }
   }
 
-  const lastRing=ringMeta.at(-1);
-  for(let j=0;j<sides;j++) idx.push(endPoleIndex,lastRing+j,lastRing+(j+1)%sides);
+  if(closed){
+    const lastRing=ringMeta.at(-1);
+    for(let j=0;j<sides;j++) idx.push(endPoleIndex,lastRing+j,lastRing+(j+1)%sides);
+  }
 
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
