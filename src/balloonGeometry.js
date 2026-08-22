@@ -1,15 +1,21 @@
 import * as THREE from 'three';
 
-function computeFrames(path){
-  const tangents=[], normals=[], binormals=[];
-  for(let i=0;i<path.length;i++){
-    const t=(i===0?path[1].clone().sub(path[0]):i===path.length-1?path[i].clone().sub(path[i-1]):path[i+1].clone().sub(path[i-1])).normalize();
+function computeFrames(path,loop=false){
+  const tangents=[], normals=[], binormals=[],n=path.length;
+  for(let i=0;i<n;i++){
+    let t;
+    if(loop){
+      const prev=path[(i-1+n)%n],next=path[(i+1)%n];
+      t=next.clone().sub(prev).normalize();
+    }else{
+      t=(i===0?path[1].clone().sub(path[0]):i===n-1?path[i].clone().sub(path[i-1]):path[i+1].clone().sub(path[i-1])).normalize();
+    }
     tangents.push(t);
   }
   let seed=Math.abs(tangents[0].y)<0.9?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0);
   normals[0]=new THREE.Vector3().crossVectors(seed,tangents[0]).normalize();
   binormals[0]=new THREE.Vector3().crossVectors(tangents[0],normals[0]).normalize();
-  for(let i=1;i<path.length;i++){
+  for(let i=1;i<n;i++){
     const axis=new THREE.Vector3().crossVectors(tangents[i-1],tangents[i]);
     normals[i]=normals[i-1].clone();
     if(axis.lengthSq()>1e-10){
@@ -32,9 +38,9 @@ export function smoothRadii(values,passes=2){
   return out;
 }
 
-export function buildBalloon(path,radii,{sides=16,capRings=5,closed=false}={}){
+export function buildBalloon(path,radii,{sides=16,capRings=5,caps=true,loop=false}={}){
   if(path.length<2)return new THREE.BufferGeometry();
-  const {tangents,normals,binormals}=computeFrames(path);
+  const {tangents,normals,binormals}=computeFrames(path,loop);
   const verts=[],vnorms=[],idx=[],ringMeta=[];
 
   const pushRing=(center,n,b,r,normalOrigin=null)=>{
@@ -51,8 +57,9 @@ export function buildBalloon(path,radii,{sides=16,capRings=5,closed=false}={}){
   };
 
   let startPoleIndex=-1,endPoleIndex=-1;
+  const useCaps=caps&&!loop;
 
-  if(closed){
+  if(useCaps){
     const startR=Math.max(0.001,radii[0]);
     const startT=tangents[0],startN=normals[0],startB=binormals[0],startP=path[0];
     const startPole=startP.clone().addScaledVector(startT,-startR);
@@ -66,9 +73,11 @@ export function buildBalloon(path,radii,{sides=16,capRings=5,closed=false}={}){
     }
   }
 
+  const mainRingStart=ringMeta.length;
   for(let i=0;i<path.length;i++) pushRing(path[i],normals[i],binormals[i],Math.max(0.001,radii[i]));
+  const mainRingCount=path.length;
 
-  if(closed){
+  if(useCaps){
     const endR=Math.max(0.001,radii[radii.length-1]);
     const endT=tangents.at(-1),endN=normals.at(-1),endB=binormals.at(-1),endP=path.at(-1);
     for(let k=1;k<=capRings;k++){
@@ -82,7 +91,7 @@ export function buildBalloon(path,radii,{sides=16,capRings=5,closed=false}={}){
     vnorms.push(endT.x,endT.y,endT.z);
   }
 
-  if(closed){
+  if(useCaps){
     const firstRing=ringMeta[0];
     for(let j=0;j<sides;j++) idx.push(startPoleIndex,firstRing+(j+1)%sides,firstRing+j);
   }
@@ -95,7 +104,15 @@ export function buildBalloon(path,radii,{sides=16,capRings=5,closed=false}={}){
     }
   }
 
-  if(closed){
+  if(loop&&mainRingCount>2){
+    const a0=ringMeta[mainRingStart+mainRingCount-1],b0=ringMeta[mainRingStart];
+    for(let j=0;j<sides;j++){
+      const a=a0+j,b=a0+(j+1)%sides,c=b0+(j+1)%sides,d=b0+j;
+      idx.push(a,b,d,b,c,d);
+    }
+  }
+
+  if(useCaps){
     const lastRing=ringMeta.at(-1);
     for(let j=0;j<sides;j++) idx.push(endPoleIndex,lastRing+j,lastRing+(j+1)%sides);
   }
