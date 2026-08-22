@@ -254,13 +254,13 @@ function outlineMeshPart(item,donorMesh,THREE){
   const quads=[];for(let i=0;i<triangles.length;){const quad=i+1<triangles.length?mergeTrianglePair(triangles[i],triangles[i+1]):null;if(quad){quads.push(quad);i+=2}else{const [a,b,c]=triangles[i++];quads.push([a,b,c,c])}}
   const faceCount=quads.length,faceBytes=new Uint8Array(faceCount*16),fDv=new DataView(faceBytes.buffer);
   for(let f=0;f<faceCount;f++){const o=f*16,q=quads[f];for(let j=0;j<4;j++)fDv.setInt32(o+j*4,q[j],true)}
-  const uvBytes=new Uint8Array(pos.count*8),faceUvBytes=faceBytes.slice();
-  const bin=new Uint8Array(vertexBytes.length+normalBytes.length+uvBytes.length+faceBytes.length+faceUvBytes.length);
-  const normalOffset=vertexBytes.length,uvOffset=normalOffset+normalBytes.length,faceOffset=uvOffset+uvBytes.length,faceUvOffset=faceOffset+faceBytes.length;
-  bin.set(vertexBytes,0);bin.set(normalBytes,normalOffset);bin.set(uvBytes,uvOffset);bin.set(faceBytes,faceOffset);bin.set(faceUvBytes,faceUvOffset);
+  const uvBytes=new Uint8Array(pos.count*8),faceUvBytes=faceBytes.slice(),faceGroupBytes=new Uint8Array(faceCount*2);
+  const bin=new Uint8Array(vertexBytes.length+normalBytes.length+uvBytes.length+faceBytes.length+faceUvBytes.length+faceGroupBytes.length);
+  const normalOffset=vertexBytes.length,uvOffset=normalOffset+normalBytes.length,faceOffset=uvOffset+uvBytes.length,faceUvOffset=faceOffset+faceBytes.length,faceGroupOffset=faceUvOffset+faceUvBytes.length;
+  bin.set(vertexBytes,0);bin.set(normalBytes,normalOffset);bin.set(uvBytes,uvOffset);bin.set(faceBytes,faceOffset);bin.set(faceUvBytes,faceUvOffset);bin.set(faceGroupBytes,faceGroupOffset);
   const mesh=clone(donorMesh);
   for(const key of Object.keys(mesh))if(key.startsWith('config_'))delete mesh[key];
-  mesh.mesh_type='mesh';
+  delete mesh.mesh_type;
   for(const key of DATA_FIELDS)delete mesh[key];
   mesh.name='Outline Balloon Mesh';
   mesh.count_vertex=pos.count;
@@ -271,6 +271,7 @@ function outlineMeshPart(item,donorMesh,THREE){
   mesh.uvs=fieldLike(donorMesh.uvs,'f32vec2',pos.count,uvOffset,uvBytes.length);
   mesh.faces=fieldLike(donorMesh.faces,'i32vec4',faceCount,faceOffset,faceBytes.length);
   mesh.faces_uv=fieldLike(donorMesh.faces_uv,'i32vec4',faceCount,faceUvOffset,faceUvBytes.length);
+  mesh.faces_group=fieldLike(donorMesh.faces_group,'u16',faceCount,faceGroupOffset,faceGroupBytes.length);
   return {mesh,bin,vertices:pos.count,faces:faceCount};
 }
 
