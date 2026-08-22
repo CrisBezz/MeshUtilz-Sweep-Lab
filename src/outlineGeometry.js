@@ -86,18 +86,20 @@ export function buildOutlineBalloon(points,{depth=.42,roundness=.18,smooth=5}={}
 
   const center=interiorCenter(pts2);
   const half=Math.max(.01,depth*.5);
-  const rings=Math.max(7,Math.min(16,Math.round(8+roundness*8)));
+  const rings=Math.max(10,Math.min(22,Math.round(12+roundness*10)));
   const verts=[],idx=[];
   const ringCount=pts2.length;
 
-  // A true balloon surface: every contour shrinks toward an interior point while
-  // its height follows a smooth quarter-sine. There is no flat extrusion face.
+  // Elliptical section from outline to pole. Using scale=cos(theta), z=sin(theta)
+  // gives the front/back skins a vertical tangent at the seam, so they meet smoothly
+  // instead of forming a sharp crease around the drawn outline.
   for(let side=0;side<2;side++){
     const sign=side===0?1:-1;
     for(let r=0;r<rings;r++){
       const t=r/(rings-1);
-      const scale=1-t;
-      const z=sign*half*Math.sin(t*Math.PI*.5);
+      const theta=t*Math.PI*.5;
+      const scale=Math.cos(theta);
+      const z=sign*half*Math.sin(theta);
       for(let i=0;i<ringCount;i++){
         const q=center.clone().lerp(pts2[i],scale);
         verts.push(q.x,q.y,z);
@@ -105,7 +107,6 @@ export function buildOutlineBalloon(points,{depth=.42,roundness=.18,smooth=5}={}
     }
     const pole=verts.length/3;
     verts.push(center.x,center.y,sign*half);
-    const base=side*rings*ringCount+side;
     for(let r=0;r<rings-1;r++){
       const a0=side*(rings*ringCount+1)+r*ringCount;
       const b0=a0+ringCount;
@@ -121,7 +122,6 @@ export function buildOutlineBalloon(points,{depth=.42,roundness=.18,smooth=5}={}
     }
   }
 
-  // Stitch the front and back together exactly on the drawn outline.
   const bottomStart=rings*ringCount+1;
   for(let i=0;i<ringCount;i++){
     const ni=(i+1)%ringCount,a=i,b=ni,c=bottomStart+ni,d=bottomStart+i;
