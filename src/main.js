@@ -3,7 +3,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {buildBalloon,smoothRadii} from './balloonGeometry.js';
 import {buildOutlineBalloon} from './outlineGeometry.js';
 import {SurfaceTargetRegistry,loadReferenceMesh} from './referenceSurface.js';
-import {buildLiveNomadBalloon} from './nomadBalloonExport.js?v=0861';
+import {buildLiveNomadBalloon} from './nomadBalloonExport.js?v=0862';
 
 const host=document.querySelector('#viewport'),scene=new THREE.Scene();
 scene.background=new THREE.Color(0x22262d);
@@ -19,11 +19,11 @@ addWorldAxis(new THREE.Vector3(0,0,-100),new THREE.Vector3(0,0,100),0x0a84ff);
 
 const $=s=>document.querySelector(s),status=$('#status'),ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
 $('#plane').parentElement.insertAdjacentHTML('afterend','<section class="reference-panel"><strong>Reference Surface</strong><input id="referenceFile" type="file" accept=".obj,.glb,.gltf" hidden><button id="loadReferenceBtn">Load Reference Mesh</button><span id="referenceStatus">No reference mesh loaded</span><label><input id="snapSurface" type="checkbox"> Snap to Surface</label><label><input id="showReference" type="checkbox" checked> Show Reference Mesh</label><label>Surface offset <input id="surfaceOffset" type="range" min="-0.50" max="0.50" value="0.02" step="0.01"><output id="surfaceOffsetOut">0.02</output></label></section>');
-document.title='MeshUtilz Balloon v0.8.6.1';document.querySelector('header span').textContent='Balloon v0.8.6.1';
+document.title='MeshUtilz Balloon v0.8.6.2';document.querySelector('header span').textContent='Balloon v0.8.6.2';
 $('#exportBtn').insertAdjacentHTML('afterend','<label>Nomad Detail<select id="nomadDetail"><option value="low">Low — easiest editing</option><option value="medium">Medium</option><option value="high" selected>High — closest shape</option></select></label><button id="exportLiveNomBtn" class="export-live-nom">Save Live Nomad Balloon — NOM</button><p id="nomadHint" class="nomad-hint">Tube Balloons export as live Nomad Tubes; Outline Balloons export as fixed mesh objects. Nomad Detail simplifies only exported Tube control points.</p>');
 $('#selectionPanel').insertAdjacentHTML('beforeend','<div class="refine-title">Refine selection</div><div class="row refine-row"><button id="editPointsBtn" disabled>Edit Points</button><button id="deletePointBtn" disabled>Delete Point</button><button id="reducePointsBtn" disabled>Reduce Points</button></div><div class="row refine-row"><button id="gizmoBtn" disabled>Universal Gizmo</button></div>');
 let items=[],current=null,drawing=false,mode='orbit',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null,activeDrawPlane=null;
-let orbitPivot=WORLD_ORIGIN.clone(),fingerDrawId=null,fingerDrawLast=null;
+let orbitPivot=WORLD_ORIGIN.clone(),fingerDrawId=null,fingerDrawLast=null,fingerDrawStart=null;
 const touchPointers=new Map();let pinchState=null,tapGesture=null,selectionOutline=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 const referenceGroup=new THREE.Group(),surfaceTargets=new SurfaceTargetRegistry();scene.add(referenceGroup);
@@ -150,7 +150,7 @@ function select(x){
   updateSelectionUI();updateStatus()
 }
 function toggleGizmo(){
-  if(!selected)return;gizmoEnabled=!gizmoEnabled;if(gizmoEnabled){editPoints=false;clearPointHandles();syncTransformProxy();status.textContent='Universal Gizmo: arrows move • rings rotate • cubes scale'}else{detachTransforms();status.textContent='Universal Gizmo hidden'}updateSelectionUI()
+  if(!selected)return;gizmoEnabled=!gizmoEnabled;if(gizmoEnabled){editPoints=false;clearPointHandles();syncTransformProxy();status.textContent='Universal Gizmo: arrows move • rings rotate • scale handles apply uniformly'}else{detachTransforms();status.textContent='Universal Gizmo hidden'}updateSelectionUI()
 }
 function setEditPoints(on){
   if(!selected||(selected.settings.kind||'tube')!=='tube')return;
@@ -239,12 +239,12 @@ function endTransform(t){
 }
 for(const t of transformSet){t.control.addEventListener('mouseDown',()=>beginTransform(t));t.control.addEventListener('objectChange',()=>changeTransform(t));t.control.addEventListener('mouseUp',()=>endTransform(t))}
 function pencilOnly(){return !!$('#pencilOnly')?.checked}
-function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');if(m==='orbit')status.textContent='Orbit / Select: free 360° trackball • 2 fingers pan/pinch • tap selects';else status.textContent=pencilOnly()?'Draw: Pencil draws • 1 finger orbits • 2 fingers pan/pinch':'Draw: finger or Pencil draws • use 2 fingers to navigate'}
+function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');if(m==='orbit')status.textContent='Orbit / Select: free 360° trackball • 2 fingers pan/pinch • tap selects';else status.textContent=pencilOnly()?'Draw: Pencil draws • 1 finger orbits • 2-finger Undo • 3-finger Redo':'Draw: finger or Pencil draws • 2-finger Undo • 3-finger Redo'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings={...uiSettings(),kind:selected.settings.kind||'tube'};rebuild(selected);setOrbitPivot(selected);if(editPoints)refreshPointHandles();else syncTransformProxy();refreshExport();updateSelectionUI();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.8.6.1\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.8.6.1.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.8.6.2\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.8.6.2.obj';a.classList.remove('disabled')}
 
 function surfaceSample(e){eventRay(e);const hit=surfaceTargets.hitFromRay(ray.ray,current?.mesh);if(!hit)return null;const offset=+$('#surfaceOffset').value;return {p:hit.position.clone().addScaledVector(hit.normal,offset),pressure:eventPressure(e),snapped:true,surfaceNormal:hit.normal,surfaceOffset:offset}}
 function snapEnabled(){return $('#snapSurface').checked}
@@ -264,7 +264,15 @@ function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});b
 function panView(dx,dy){const h=Math.max(1,renderer.domElement.clientHeight);const dist=Math.max(.2,camera.position.distanceTo(orbitPivot));const worldPerPixel=2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))/h;const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize();const delta=right.multiplyScalar(-dx*worldPerPixel).addScaledVector(up,dy*worldPerPixel);camera.position.add(delta);orbitPivot.add(delta);controls.target.add(delta)}
 function touchMove(e){if(!touchPointers.has(e.pointerId))return;markTapMovement(e);touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size>=2){const m=touchMetrics();if(!m)return;if(!pinchState)pinchState=m;const panDx=m.cx-pinchState.cx,panDy=m.cy-pinchState.cy;if(Math.hypot(panDx,panDy)>.05)panView(panDx,panDy);const ratio=m.distance/pinchState.distance;if(Math.abs(ratio-1)>.002){const forward=new THREE.Vector3();camera.getWorldDirection(forward);const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));let step=Math.log(ratio)*scale*.85;const next=camera.position.clone().addScaledVector(forward,step);const minDist=.18,maxDist=250,dist=next.distanceTo(orbitPivot);if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);if(dist<=maxDist)camera.position.addScaledVector(forward,step);keepControlsAligned()}pinchState=m;return}trackOrbitMove(e)}
 function touchUp(e){const wasSingle=touchPointers.size===1;if(wasSingle)finishOrbitTap(e);touchPointers.delete(e.pointerId);if(touchPointers.size<2)pinchState=null;if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}else if(touchPointers.size===0){orbitTap=null;finishTapGesture()}}
-function beginTwoFingerNavigation(e){const id=fingerDrawId,last=fingerDrawLast;cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;tapGesture=null;touchPointers.clear();if(id!==null&&last)touchPointers.set(id,{x:last.x,y:last.y});touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});orbitTap=null;pinchState=touchMetrics()}
+function beginTwoFingerNavigation(e){
+  const id=fingerDrawId,last=fingerDrawLast,start=fingerDrawStart;
+  const firstMoved=!!(start&&last&&Math.hypot(last.x-start.x,last.y-start.y)>12);
+  cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;touchPointers.clear();
+  if(id!==null&&last)touchPointers.set(id,{x:last.x,y:last.y});touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  tapGesture={started:performance.now(),maxTouches:touchPointers.size,moved:firstMoved,starts:new Map()};
+  for(const [pid,p] of touchPointers)tapGesture.starts.set(pid,{x:p.x,y:p.y});
+  orbitTap=null;pinchState=touchMetrics();
+}
 
 renderer.domElement.addEventListener('pointerdown',e=>{
   if(mode==='orbit'&&editPoints&&beginPointDrag(e)){e.preventDefault();e.stopImmediatePropagation();return}
@@ -272,7 +280,7 @@ renderer.domElement.addEventListener('pointerdown',e=>{
     e.preventDefault();
     if(mode==='orbit'){touchDown(e);return}
     e.stopImmediatePropagation();
-    if(mode==='draw'&&!pencilOnly()){if(fingerDrawId===null&&touchPointers.size===0){fingerDrawId=e.pointerId;fingerDrawLast={x:e.clientX,y:e.clientY};startDraw(e);return}if(fingerDrawId!==null&&e.pointerId!==fingerDrawId){beginTwoFingerNavigation(e);return}}
+    if(mode==='draw'&&!pencilOnly()){if(fingerDrawId===null&&touchPointers.size===0){fingerDrawId=e.pointerId;fingerDrawStart={x:e.clientX,y:e.clientY};fingerDrawLast={x:e.clientX,y:e.clientY};startDraw(e);return}if(fingerDrawId!==null&&e.pointerId!==fingerDrawId){beginTwoFingerNavigation(e);return}}
     touchDown(e);return
   }
   if(mode==='orbit'){trackOrbitDown(e);return}e.stopImmediatePropagation();startDraw(e)
@@ -292,19 +300,19 @@ renderer.domElement.addEventListener('pointerup',e=>{
   if(e.pointerType==='touch'){
     e.preventDefault();
     if(mode==='orbit'){touchUp(e);return}
-    e.stopImmediatePropagation();if(e.pointerId===fingerDrawId){finishStroke();fingerDrawId=null;fingerDrawLast=null;return}touchUp(e);return
+    e.stopImmediatePropagation();if(e.pointerId===fingerDrawId){finishStroke();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;return}touchUp(e);return
   }
   if(mode==='orbit'){finishOrbitTap(e);return}e.stopImmediatePropagation();finishStroke()
 },{capture:true});
 renderer.domElement.addEventListener('pointercancel',e=>{
   if(pointDragId===e.pointerId){pointDragId=null;pointDragPlane=null;return}
-  if(e.pointerType==='touch'){if(e.pointerId===fingerDrawId){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;return}touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;tapGesture=null;return}
+  if(e.pointerType==='touch'){if(e.pointerId===fingerDrawId){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;return}touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;tapGesture=null;return}
   if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()
 },{capture:true});
 
 $('#drawBtn').onclick=()=>{if(editPoints)setEditPoints(false);detachTransforms();setMode('draw')};$('#orbitBtn').onclick=()=>{setMode('orbit');if(selected&&!editPoints)syncTransformProxy()};
 $('#editPointsBtn').onclick=()=>setEditPoints(!editPoints);$('#deletePointBtn').onclick=deleteActivePoint;$('#reducePointsBtn').onclick=reduceTubePoints;$('#gizmoBtn').onclick=toggleGizmo;
-$('#pencilOnly').onchange=()=>{if(fingerDrawId!==null){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null}setMode(mode)};
+$('#pencilOnly').onchange=()=>{if(fingerDrawId!==null){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null}setMode(mode)};
 $('#creation').addEventListener('change',()=>{if(selected)deselect(true);status.textContent=$('#creation').value==='outline'?'New balloons: closed outline fill':'New balloons: tube stroke'});
 ['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
 ['loop','caps'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#loop').checked?'New tube balloons: looped':($('#caps').checked?'New tube balloons: open path with caps':'New tube balloons: open path without caps')}));
@@ -319,7 +327,7 @@ $('#nomadDetail').onchange=()=>{status.textContent=`Nomad export detail: ${$('#n
 $('#undoBtn').onclick=doUndo;$('#redoBtn').onclick=doRedo;
 $('#deleteBtn').onclick=()=>{if(!selected)return;checkpoint();const doomed=selected;deselect(true);disposeItem(doomed);items=items.filter(x=>x!==doomed);select(items.at(-1)||null);refreshExport()};$('#clearBtn').onclick=()=>{if(!items.length)return;checkpoint();restore([])};
 $('#exportBtn').addEventListener('click',e=>{if($('#exportBtn').classList.contains('disabled')){e.preventDefault();status.textContent='Nothing to export'}else status.textContent=`OBJ ready • ${items.length} balloon${items.length===1?'':'s'}`});
-$('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');button.disabled=true;button.textContent='Building Live NOM…';try{const detail=$('#nomadDetail').value,result=await buildLiveNomadBalloon(items,THREE,{detail}),url=URL.createObjectURL(new Blob([result.bytes],{type:'application/x-nomad-sculpt'})),a=document.createElement('a');a.href=url;a.download=`MeshUtilz-Live-Nomad-Balloons-v0.8.6.1-${detail}-${result.count}.nom`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);const tubeText=`${result.tubeCount} live Tube${result.tubeCount===1?'':'s'}`,outlineText=`${result.outlineCount} Outline mesh${result.outlineCount===1?'':'es'}`,points=result.tubeCount?` • ${result.sourcePoints} → ${result.exportPoints} Tube control points`:'';status.textContent=`NOM ready • ${tubeText} • ${outlineText}${points} • ${detail}`}catch(err){status.textContent=`Live NOM export failed: ${err.message}`}finally{button.disabled=false;button.textContent='Save Live Nomad Balloon — NOM'}};
+$('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');button.disabled=true;button.textContent='Building Live NOM…';try{const detail=$('#nomadDetail').value,result=await buildLiveNomadBalloon(items,THREE,{detail}),url=URL.createObjectURL(new Blob([result.bytes],{type:'application/x-nomad-sculpt'})),a=document.createElement('a');a.href=url;a.download=`MeshUtilz-Live-Nomad-Balloons-v0.8.6.2-${detail}-${result.count}.nom`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);const tubeText=`${result.tubeCount} live Tube${result.tubeCount===1?'':'s'}`,outlineText=`${result.outlineCount} Outline mesh${result.outlineCount===1?'':'es'}`,points=result.tubeCount?` • ${result.sourcePoints} → ${result.exportPoints} Tube control points`:'';status.textContent=`NOM ready • ${tubeText} • ${outlineText}${points} • ${detail}`}catch(err){status.textContent=`Live NOM export failed: ${err.message}`}finally{button.disabled=false;button.textContent='Save Live Nomad Balloon — NOM'}};
 
 function resize(){const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(editPoints)refreshPointHandles()}
 function resetInitialView(){controls.target.copy(WORLD_ORIGIN);orbitPivot.copy(WORLD_ORIGIN);camera.position.set(7,7,7);camera.up.set(0,1,0);camera.lookAt(WORLD_ORIGIN)}
