@@ -9,8 +9,8 @@ export class SurfaceTargetRegistry {
   register(root){this.targets.add(root);return root}
   unregister(root){this.targets.delete(root)}
   clear(){this.targets.clear()}
-  hitFromRay(sourceRay){
-    const roots=[...this.targets];if(!roots.length)return null;
+  hitFromRay(sourceRay,excluded=null){
+    const roots=[...this.targets].filter(root=>root!==excluded);if(!roots.length)return null;
     this.raycaster.ray.copy(sourceRay);
     const hit=this.raycaster.intersectObjects(roots,true)[0];
     if(!hit||!hit.face)return null;
