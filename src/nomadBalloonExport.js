@@ -1,13 +1,18 @@
 // Builds native Nomad Sculpt projects from the validated editable Tube template
 // previously proven in MeshUtilz. Each Balloon Tube remains an independent live Tube.
-// v0.8.1 keeps the donor Tube cache structure intact, deforms only its cached vertices
-// to the Balloon path, and writes the complete per-point Tube parameter arrays Nomad expects.
+// v0.8.2 keeps the proven live Tube/radius pipeline and simplifies only the procedural
+// control points exported to Nomad, leaving MeshUtilz Balloon geometry untouched.
 const TEMPLATE_URL='./src/templates/nomad-tube.nom';
 const enc=new TextEncoder(),dec=new TextDecoder();
 const u64=(dv,o)=>Number(dv.getBigUint64(o,true));
 const w64=(dv,o,n)=>dv.setBigUint64(o,BigInt(n),true);
 const clone=x=>structuredClone(x);
 const DATA_FIELDS=['vertices','uvs','faces','faces_uv','faces_group','normals','colors','materials'];
+const DETAIL={
+  low:{radiusTol:.46,pathTol:.016,max:18},
+  medium:{radiusTol:.26,pathTol:.008,max:28},
+  high:{radiusTol:.13,pathTol:.0035,max:48}
+};
 
 async function template(){
   const bytes=new Uint8Array(await (await fetch(TEMPLATE_URL,{cache:'no-store'})).arrayBuffer());
@@ -16,8 +21,6 @@ async function template(){
   return {bytes,jo,json:JSON.parse(dec.decode(bytes.slice(jo,jo+jl))),bin:bytes.slice(bo,bo+bl)};
 }
 
-// This is the same safe pattern used by the proven MeshUtilz procedural exporter:
-// retain the complete donor mesh cache slice rather than rebuilding only a few fields.
 function meshSlice(parsed,sourceMesh){
   let lo=Infinity,hi=0;
   for(const key of DATA_FIELDS){
@@ -62,28 +65,90 @@ function sampleRadius(sample,settings,index,count,THREE){
   return Math.max(1e-5,radius);
 }
 
-function configureTube(mesh,item,THREE){
-  const samples=item.samples,settings=item.settings,cfg=mesh.config_tube;
+function pathLength(records,closed=false){
+  let length=0;
+  for(let i=1;i<records.length;i++)length+=records[i].p.distanceTo(records[i-1].p);
+  if(closed&&records.length>2)length+=records[0].p.distanceTo(records.at(-1).p);
+  return length;
+}
+
+function pointSegmentError(rec,a,b,radiusWeight){
+  const ab=b.p.clone().sub(a.p),len2=ab.lengthSq();
+  let t=len2>1e-12?rec.p.clone().sub(a.p).dot(ab)/len2:0;
+  t=Math.max(0,Math.min(1,t));
+  const q=a.p.clone().addScaledVector(ab,t),posErr=rec.p.distanceTo(q);
+  const expected=a.r+(b.r-a.r)*t,radiusErr=Math.abs(rec.r-expected);
+  return Math.hypot(posErr,radiusErr*radiusWeight);
+}
+
+function rdpIndices(records,tolerance,radiusWeight){
+  if(records.length<=2)return records.map((_,i)=>i);
+  const keep=new Set([0,records.length-1]),stack=[[0,records.length-1]];
+  while(stack.length){
+    const [a,b]=stack.pop();let best=-1,bestErr=tolerance;
+    for(let i=a+1;i<b;i++){
+      const err=pointSegmentError(records[i],records[a],records[b],radiusWeight);
+      if(err>bestErr){bestErr=err;best=i}
+    }
+    if(best>=0){keep.add(best);stack.push([a,best],[best,b])}
+  }
+  return [...keep].sort((a,b)=>a-b);
+}
+
+function simplifyOpen(records,detail){
+  if(records.length<=4)return records.slice();
+  const spec=DETAIL[detail]||DETAIL.medium,total=pathLength(records,false),avgRadius=records.reduce((n,x)=>n+x.r,0)/records.length;
+  let tolerance=Math.max(avgRadius*spec.radiusTol,total*spec.pathTol,1e-5),indices=rdpIndices(records,tolerance,1.8);
+  for(let pass=0;indices.length>spec.max&&pass<10;pass++){
+    tolerance*=1.32;
+    indices=rdpIndices(records,tolerance,1.8);
+  }
+  return indices.map(i=>records[i]);
+}
+
+function simplifyClosed(records,detail){
+  if(records.length<=6)return records.slice();
+  // Split the loop at the point furthest from point 0, simplify both arcs, then join them.
+  let far=1,farD=-1;
+  for(let i=1;i<records.length;i++){
+    const d=records[0].p.distanceToSquared(records[i].p);
+    if(d>farD){farD=d;far=i}
+  }
+  const first=records.slice(0,far+1),second=records.slice(far).concat([records[0]]);
+  const a=simplifyOpen(first,detail),b=simplifyOpen(second,detail);
+  return a.slice(0,-1).concat(b.slice(0,-1));
+}
+
+function simplifiedTubeSamples(item,detail,THREE){
+  const source=item.samples,settings=item.settings;
+  const records=source.map((s,i)=>({
+    p:s.p.clone(),
+    r:sampleRadius(s,settings,i,source.length,THREE)
+  }));
+  const reduced=settings.loop===true?simplifyClosed(records,detail):simplifyOpen(records,detail);
+  // Never allow simplification to make a valid live Tube unusable.
+  if(reduced.length<(settings.loop?3:2))return records;
+  return reduced;
+}
+
+function configureTube(mesh,item,detail,THREE){
+  const settings=item.settings,cfg=mesh.config_tube;
   if(!cfg?.curve)throw Error('Nomad Tube template has no config_tube curve');
-  cfg.curve.points=samples.map(s=>[s.p.x,s.p.y,s.p.z]);
-  cfg.curve.sharps=samples.map(()=>0);
+  const records=simplifiedTubeSamples(item,detail,THREE);
+  cfg.curve.points=records.map(x=>[x.p.x,x.p.y,x.p.z]);
+  cfg.curve.sharps=records.map(()=>0);
   cfg.curve.closed=!!settings.loop;
   cfg.cap_start=settings.caps!==false;
   cfg.cap_end=settings.caps!==false;
-  cfg.radiuses=samples.map((sample,i)=>sampleRadius(sample,settings,i,samples.length,THREE));
-
-  // MeshUtilz's known-good native Tube adapter writes all of these arrays together.
-  // Keeping their lengths aligned with curve.points is important to Nomad's live Tube state.
-  cfg.rotates=samples.map(()=>0);
-  cfg.spirals=samples.map(()=>0);
+  cfg.radiuses=records.map(x=>x.r);
+  cfg.rotates=records.map(()=>0);
+  cfg.spirals=records.map(()=>0);
   if(Array.isArray(cfg.profiles)&&cfg.profiles.length){
     const seed=clone(cfg.profiles[0]);
-    cfg.profiles=samples.map(()=>clone(seed));
+    cfg.profiles=records.map(()=>clone(seed));
   }
-
-  // Preserve the validated donor subdivision/profile settings. The cached donor topology
-  // therefore remains structurally consistent until Nomad chooses to regenerate it.
   mesh.name='Live Tube Balloon';
+  return {source:item.samples.length,exported:records.length};
 }
 
 function radiusAt(config,u,THREE){
@@ -114,7 +179,6 @@ function deformTubeCache(donorBin,mesh,sourceConfig,THREE){
   if(!(sourceLength>1e-8))throw Error('Nomad Tube donor curve has zero length');
   sourceAxis.multiplyScalar(1/sourceLength);
 
-  // Build a stable perpendicular basis around the donor's straight Tube axis.
   const helper=Math.abs(sourceAxis.x)<.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1);
   const sourceN=helper.clone().sub(sourceAxis.clone().multiplyScalar(helper.dot(sourceAxis))).normalize();
   const sourceBino=new THREE.Vector3().crossVectors(sourceAxis,sourceN).normalize();
@@ -140,14 +204,11 @@ function deformTubeCache(donorBin,mesh,sourceConfig,THREE){
     dv.setFloat32(o,q.x,true);dv.setFloat32(o+4,q.y,true);dv.setFloat32(o+8,q.z,true);
   }
 
-  // When the donor normals are plain f32vec3, rotate them with the deformed Tube as well.
-  // If Nomad's donor stores them differently, leave that validated donor field untouched.
   const normals=mesh.normals;
   if(normals?.type==='f32vec3'&&!normals.lz4&&Number.isFinite(normals.count)&&normals.offset>=0&&normals.offset+normals.count*12<=bin.length){
     const sourceView=new DataView(donorBin.buffer,donorBin.byteOffset,donorBin.byteLength);
     for(let i=0;i<normals.count;i++){
       const o=normals.offset+i*12,nx=sourceView.getFloat32(o,true),ny=sourceView.getFloat32(o+4,true),nz=sourceView.getFloat32(o+8,true);
-      // Map by corresponding vertex u where possible; otherwise use the nearest available vertex.
       const vi=Math.min(field.count-1,Math.floor(i*field.count/Math.max(1,normals.count))),vo=field.offset+vi*12;
       p.set(sourceView.getFloat32(vo,true),sourceView.getFloat32(vo+4,true),sourceView.getFloat32(vo+8,true));
       const u=THREE.MathUtils.clamp(p.clone().sub(sourceA).dot(sourceAxis)/sourceLength,0,1),frame=frameAt(frames,u,segments,THREE);
@@ -168,7 +229,8 @@ function findNode(nodes,meshIndex=0){
   return null;
 }
 
-export async function buildLiveNomadBalloon(items,THREE){
+export async function buildLiveNomadBalloon(items,THREE,options={}){
+  const detail=(options.detail||'medium').toLowerCase();
   const tubes=items.filter(x=>(x.settings.kind||'tube')==='tube'&&x.samples.length>=2);
   if(!tubes.length)throw Error('Create at least one Tube Balloon before exporting Live NOM.');
   const base=await template(),donor=meshSlice(base,base.json.meshes[0]);
@@ -177,10 +239,11 @@ export async function buildLiveNomadBalloon(items,THREE){
   const project=clone(base.json),binaryParts=[];project.meshes=[];
   const proto=findNode(base.json.scene,0)||{};
   const group={name:'MeshUtilz – Live Nomad Balloons',group:0,selected:true,selected_main:true,children:[],visible:true,node_collapse:false,lock:false};
+  let sourcePoints=0,exportPoints=0;
 
   tubes.forEach((item,i)=>{
     const mesh=clone(donor.mesh),sourceConfig=clone(mesh.config_tube);
-    configureTube(mesh,item,THREE);
+    const counts=configureTube(mesh,item,detail,THREE);sourcePoints+=counts.source;exportPoints+=counts.exported;
     const bin=deformTubeCache(donor.bin,mesh,sourceConfig,THREE),offset=binaryParts.reduce((n,p)=>n+p.length,0);
     offsetFields(mesh,offset);
     project.meshes.push(mesh);binaryParts.push(bin);
@@ -195,5 +258,5 @@ export async function buildLiveNomadBalloon(items,THREE){
   const json=enc.encode(JSON.stringify(project)),binaryLength=binaryParts.reduce((n,b)=>n+b.length,0),binaryOffset=(base.jo+json.length+7)&~7,out=new Uint8Array(binaryOffset+binaryLength);
   out.set(base.bytes.slice(0,base.jo));out.set(json,base.jo);let at=binaryOffset;for(const part of binaryParts){out.set(part,at);at+=part.length}
   const dv=new DataView(out.buffer);w64(dv,16,out.length);w64(dv,24,base.jo);w64(dv,32,json.length);w64(dv,40,binaryOffset);w64(dv,48,binaryLength);
-  return {bytes:out,count:tubes.length};
+  return {bytes:out,count:tubes.length,sourcePoints,exportPoints,detail};
 }
