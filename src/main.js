@@ -18,7 +18,7 @@ let orbitPivot=WORLD_ORIGIN.clone();
 const touchPointers=new Map();let pinchState=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 
-function uiSettings(){return{width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,closed:$('#closed').checked}}
+function uiSettings(){return{width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,loop:$('#loop').checked,caps:$('#caps').checked}}
 function meshCenter(x){if(!x)return WORLD_ORIGIN.clone();x.mesh.updateMatrixWorld(true);const g=x.mesh.geometry;if(!g.boundingSphere)g.computeBoundingSphere();return g.boundingSphere?g.boundingSphere.center.clone().applyMatrix4(x.mesh.matrixWorld):x.mesh.getWorldPosition(new THREE.Vector3())}
 function setOrbitPivot(x){orbitPivot=x?meshCenter(x):WORLD_ORIGIN.clone()}
 function keepControlsAligned(){const d=Math.max(.1,camera.position.distanceTo(controls.target));const f=new THREE.Vector3();camera.getWorldDirection(f);controls.target.copy(camera.position).addScaledVector(f,d)}
@@ -35,19 +35,28 @@ function restore(snap){items.forEach(disposeItem);items=[];selected=null;for(con
 
 function resample(samples,settings){
   if(samples.length<2)return{path:[],radii:[]};
-  const raw=samples.map(s=>s.p),curve=new THREE.CatmullRomCurve3(raw,false,'centripetal',.5);
+  const raw=samples.map(s=>s.p),loop=settings.loop&&raw.length>2;
+  const curve=new THREE.CatmullRomCurve3(raw,loop,'centripetal',.5);
   const count=Math.max(3,Math.min(420,raw.length*settings.smooth));
-  const path=curve.getPoints(count),r=[];
-  const base=settings.width/2;
+  const path=curve.getPoints(count);
+  if(loop&&path.length>2&&path[0].distanceToSquared(path.at(-1))<1e-10)path.pop();
+  const r=[],base=settings.width/2;
   for(let i=0;i<path.length;i++){
-    const u=i/(path.length-1),f=u*(samples.length-1),a=Math.floor(f),b=Math.min(samples.length-1,a+1),q=f-a;
-    const pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q);
+    const u=loop?i/path.length:i/(path.length-1);
+    let pressure;
+    if(loop){
+      const f=u*samples.length,a=Math.floor(f)%samples.length,b=(a+1)%samples.length,q=f-Math.floor(f);
+      pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q);
+    }else{
+      const f=u*(samples.length-1),a=Math.floor(f),b=Math.min(samples.length-1,a+1),q=f-a;
+      pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q);
+    }
     const easedPressure=THREE.MathUtils.smoothstep(pressure,0.05,1);
     const pressureFactor=THREE.MathUtils.lerp(1,0.28+0.92*easedPressure,settings.pressure);
-    const bodyShape=Math.sin(Math.PI*u);
+    const bodyShape=loop?0:Math.sin(Math.PI*u);
     const inflation=1+settings.bulge*Math.pow(Math.max(0,bodyShape),0.7);
     let radius=base*pressureFactor*inflation;
-    if(settings.closed&&settings.taper){
+    if(!loop&&settings.caps&&settings.taper){
       const edge=Math.min(u,1-u);
       const span=THREE.MathUtils.lerp(0.035,0.2,settings.endSoft);
       const tip=THREE.MathUtils.smoothstep(edge,0,span);
@@ -58,18 +67,18 @@ function resample(samples,settings){
   }
   return{path,radii:smoothRadii(r,3)};
 }
-function rebuild(x){x.mesh.geometry.dispose();const {path,radii}=resample(x.samples,x.settings);x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,closed:x.settings.closed===true});x.mesh.material.wireframe=$('#wire').checked}
-function addItem(samples,settings=uiSettings(),autoSelect=true){const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material()),x={samples,settings:{bulge:.18,endSoft:.65,closed:false,...settings},mesh};items.push(x);scene.add(mesh);rebuild(x);if(autoSelect)select(x);return x}
+function rebuild(x){x.mesh.geometry.dispose();const {path,radii}=resample(x.samples,x.settings);x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,caps:x.settings.caps!==false,loop:x.settings.loop===true});x.mesh.material.wireframe=$('#wire').checked}
+function addItem(samples,settings=uiSettings(),autoSelect=true){const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material()),x={samples,settings:{bulge:.18,endSoft:.65,loop:false,caps:true,...settings},mesh};items.push(x);scene.add(mesh);rebuild(x);if(autoSelect)select(x);return x}
 function updateStatus(){const verts=items.reduce((n,x)=>n+(x.mesh.geometry.getAttribute('position')?.count||0),0);status.textContent=`${items.length} balloon${items.length===1?'':'s'} • ${verts} vertices${selected?' • selected':''}`}
-function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#closed').checked=x.settings.closed===true;syncOutputs()}
+function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#loop').checked=x.settings.loop===true;$('#caps').checked=x.settings.caps!==false;syncOutputs()}
 function updateSelectionUI(){const on=!!selected;$('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#selectionLabel').textContent=on?`Selected balloon ${items.indexOf(selected)+1}`:'No balloon selected'}
 function select(x){if(selected)selected.mesh.material.emissive.setHex(0);selected=x;if(x){x.mesh.material.emissive.setHex(0x29405f);loadControls(x);setOrbitPivot(x)}else setOrbitPivot(null);updateSelectionUI();updateStatus()}
 function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');status.textContent=m==='draw'?'Draw: Pencil draws • 1 finger orbits • 2 fingers pan/pinch':'Orbit / Select: 1 finger rotates • 2 fingers pan/pinch • tap selects'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);setOrbitPivot(selected);refreshExport();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.11\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.11.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.12\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.12.obj';a.classList.remove('disabled')}
 
 function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#plane').value==='VIEW'?'Drawing balloon on view plane…':'Drawing balloon…'}
 function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
@@ -120,7 +129,7 @@ renderer.domElement.addEventListener('pointercancel',e=>{if(e.pointerType==='tou
 
 $('#drawBtn').onclick=()=>setMode('draw');$('#orbitBtn').onclick=()=>setMode('orbit');
 ['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
-$('#closed').addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#closed').checked?'New balloons: closed ends':'New balloons: open ends'});
+['loop','caps'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#loop').checked?'New balloons: looped':($('#caps').checked?'New balloons: open path with caps':'New balloons: open path without caps')}));
 $('#wire').oninput=()=>{items.forEach(rebuild);refreshExport()};$('#applyBtn').onclick=()=>applySelected(true);
 $('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(s=>({p:s.p.clone(),pressure:s.pressure})),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
 $('#undoBtn').onclick=()=>{if(undo.length){redo.push(snapshot());restore(undo.pop())}};$('#redoBtn').onclick=()=>{if(redo.length){undo.push(snapshot());restore(redo.pop())}};
