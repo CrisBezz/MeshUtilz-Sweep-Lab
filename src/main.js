@@ -1,26 +1,27 @@
 import * as THREE from 'three';
-import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {buildBalloon,smoothRadii} from './balloonGeometry.js';
 import {buildOutlineBalloon} from './outlineGeometry.js';
 import {SurfaceTargetRegistry,loadReferenceMesh} from './referenceSurface.js';
-import {buildLiveNomadBalloon} from './nomadBalloonExport.js?v=086';
+import {buildLiveNomadBalloon} from './nomadBalloonExport.js?v=0861';
 
 const host=document.querySelector('#viewport'),scene=new THREE.Scene();
 scene.background=new THREE.Color(0x22262d);
 const WORLD_ORIGIN=new THREE.Vector3(0,0,0);
 const camera=new THREE.PerspectiveCamera(50,1,.01,1000);camera.position.set(7,7,7);
 const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.appendChild(renderer.domElement);
-const controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(WORLD_ORIGIN);controls.enableDamping=true;controls.enabled=true;controls.enableRotate=false;controls.enablePan=false;controls.enableZoom=false;
+const controls={target:WORLD_ORIGIN.clone()};
 scene.add(new THREE.HemisphereLight(0xffffff,0x444444,2.2));const dl=new THREE.DirectionalLight(0xffffff,2);dl.position.set(5,8,4);scene.add(dl);
-scene.add(new THREE.GridHelper(20,40,0x657080,0x343a44));
-scene.add(new THREE.AxesHelper(0.75));
+function addWorldAxis(a,b,color){const g=new THREE.BufferGeometry().setFromPoints([a,b]),m=new THREE.LineBasicMaterial({color,transparent:true,opacity:.82});const line=new THREE.Line(g,m);line.raycast=()=>{};scene.add(line)}
+addWorldAxis(new THREE.Vector3(-100,0,0),new THREE.Vector3(100,0,0),0xff3b30);
+addWorldAxis(new THREE.Vector3(0,-100,0),new THREE.Vector3(0,100,0),0x34c759);
+addWorldAxis(new THREE.Vector3(0,0,-100),new THREE.Vector3(0,0,100),0x0a84ff);
 
 const $=s=>document.querySelector(s),status=$('#status'),ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
 $('#plane').parentElement.insertAdjacentHTML('afterend','<section class="reference-panel"><strong>Reference Surface</strong><input id="referenceFile" type="file" accept=".obj,.glb,.gltf" hidden><button id="loadReferenceBtn">Load Reference Mesh</button><span id="referenceStatus">No reference mesh loaded</span><label><input id="snapSurface" type="checkbox"> Snap to Surface</label><label><input id="showReference" type="checkbox" checked> Show Reference Mesh</label><label>Surface offset <input id="surfaceOffset" type="range" min="-0.50" max="0.50" value="0.02" step="0.01"><output id="surfaceOffsetOut">0.02</output></label></section>');
-document.title='MeshUtilz Balloon v0.8.6';document.querySelector('header span').textContent='Balloon v0.8.6';
+document.title='MeshUtilz Balloon v0.8.6.1';document.querySelector('header span').textContent='Balloon v0.8.6.1';
 $('#exportBtn').insertAdjacentHTML('afterend','<label>Nomad Detail<select id="nomadDetail"><option value="low">Low — easiest editing</option><option value="medium">Medium</option><option value="high" selected>High — closest shape</option></select></label><button id="exportLiveNomBtn" class="export-live-nom">Save Live Nomad Balloon — NOM</button><p id="nomadHint" class="nomad-hint">Tube Balloons export as live Nomad Tubes; Outline Balloons export as fixed mesh objects. Nomad Detail simplifies only exported Tube control points.</p>');
-$('#selectionPanel').insertAdjacentHTML('beforeend','<div class="refine-title">Refine selection</div><div class="row refine-row"><button id="editPointsBtn" disabled>Edit Points</button><button id="deletePointBtn" disabled>Delete Point</button><button id="reducePointsBtn" disabled>Reduce Points</button></div><div class="row refine-row"><button id="moveGizmoBtn" disabled>Move</button><button id="rotateGizmoBtn" disabled>Rotate</button><button id="scaleGizmoBtn" disabled>Scale</button></div>');
+$('#selectionPanel').insertAdjacentHTML('beforeend','<div class="refine-title">Refine selection</div><div class="row refine-row"><button id="editPointsBtn" disabled>Edit Points</button><button id="deletePointBtn" disabled>Delete Point</button><button id="reducePointsBtn" disabled>Reduce Points</button></div><div class="row refine-row"><button id="gizmoBtn" disabled>Universal Gizmo</button></div>');
 let items=[],current=null,drawing=false,mode='orbit',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null,activeDrawPlane=null;
 let orbitPivot=WORLD_ORIGIN.clone(),fingerDrawId=null,fingerDrawLast=null;
 const touchPointers=new Map();let pinchState=null,tapGesture=null,selectionOutline=null;
@@ -29,8 +30,9 @@ const referenceGroup=new THREE.Group(),surfaceTargets=new SurfaceTargetRegistry(
 let referenceRoot=null;
 const selectionOutlineMaterial=new THREE.MeshBasicMaterial({color:0xff2020,side:THREE.BackSide,depthWrite:false});
 const transformProxy=new THREE.Object3D();scene.add(transformProxy);
-const transform=new TransformControls(camera,renderer.domElement),transformHelper=transform.getHelper();scene.add(transformHelper);transformHelper.visible=false;
-let gizmoMode='translate',gizmoDragging=false,gizmoStartProxy=null,gizmoStartMesh=null;
+function makeTransform(kind,size){const c=new TransformControls(camera,renderer.domElement);c.setMode(kind);c.setSpace('world');c.setSize(size);const helper=c.getHelper();scene.add(helper);helper.visible=false;return {control:c,helper,kind}}
+const transformSet=[makeTransform('translate',.92),makeTransform('rotate',.78),makeTransform('scale',1.14)];
+let gizmoEnabled=true,gizmoDragging=false,gizmoMode='translate',activeTransform=null,gizmoStartProxy=null,gizmoStartMesh=null;
 let editPoints=false,pointHandles=[],activePoint=-1,pointDragId=null,pointDragPlane=null;
 const pointMaterial=new THREE.MeshBasicMaterial({color:0xffc247,depthTest:false}),activePointMaterial=new THREE.MeshBasicMaterial({color:0xff4a4a,depthTest:false});
 
@@ -58,7 +60,9 @@ function refreshSelectionOutline(x){if(selected===x)showSelectionOutline(x)}
 function cloneSample(s){return {p:s.p.clone(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.clone():null,surfaceOffset:s.surfaceOffset??0}}
 function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray()}))}
 function checkpoint(){undo.push(snapshot());if(undo.length>30)undo.shift();redo=[]}
-function disposeItem(x){if(selectionOutline?.parent===x.mesh)clearSelectionOutline();if(selected===x){transform.detach();transformHelper.visible=false;clearPointHandles()}surfaceTargets.unregister(x.mesh);scene.remove(x.mesh);x.mesh.geometry.dispose();x.mesh.material.dispose()}
+function detachTransforms(){for(const t of transformSet){t.control.detach();t.helper.visible=false;t.control.enabled=true}activeTransform=null}
+function setTransformVisibility(on){for(const t of transformSet)t.helper.visible=!!on}
+function disposeItem(x){if(selectionOutline?.parent===x.mesh)clearSelectionOutline();if(selected===x){detachTransforms();clearPointHandles()}surfaceTargets.unregister(x.mesh);scene.remove(x.mesh);x.mesh.geometry.dispose();x.mesh.material.dispose()}
 function restore(snap){clearSelectionOutline();items.forEach(disposeItem);items=[];selected=null;for(const d of snap){const x=addItem(d.samples.map(s=>({p:new THREE.Vector3(...s.p),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?new THREE.Vector3(...s.surfaceNormal):null,surfaceOffset:s.surfaceOffset??0})),d.settings,false);x.mesh.position.fromArray(d.position||[0,0,0])}select(items.at(-1)||null);refreshExport();updateStatus()}
 function doUndo(){if(!undo.length){status.textContent='Nothing to undo';return}redo.push(snapshot());restore(undo.pop());status.textContent='Undo'}
 function doRedo(){if(!redo.length){status.textContent='Nothing to redo';return}undo.push(snapshot());restore(redo.pop());status.textContent='Redo'}
@@ -119,9 +123,8 @@ function updateSelectionUI(){
   const on=!!selected,tube=on&&(selected.settings.kind||'tube')==='tube';
   $('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#deselectBtn').disabled=!on;
   $('#editPointsBtn').disabled=!tube;$('#reducePointsBtn').disabled=!tube;$('#deletePointBtn').disabled=!tube||activePoint<0;
-  $('#moveGizmoBtn').disabled=!on;$('#rotateGizmoBtn').disabled=!on;$('#scaleGizmoBtn').disabled=!on;
+  $('#gizmoBtn').disabled=!on;$('#gizmoBtn').classList.toggle('active',on&&!editPoints&&gizmoEnabled);
   $('#editPointsBtn').classList.toggle('active',editPoints&&tube);
-  ['moveGizmoBtn','rotateGizmoBtn','scaleGizmoBtn'].forEach((id,i)=>$('#'+id).classList.toggle('active',!editPoints&&on&&gizmoMode===['translate','rotate','scale'][i]));
   $('#selectionLabel').textContent=on?`Selected ${selected.settings.kind==='outline'?'outline':'tube'} balloon ${items.indexOf(selected)+1}`:'No balloon selected';
 }
 function clearPointHandles(resetState=true){for(const h of pointHandles)scene.remove(h);pointHandles=[];if(resetState){activePoint=-1;pointDragId=null;pointDragPlane=null}}
@@ -132,28 +135,26 @@ function refreshPointHandles(){
   selected.samples.forEach((s,i)=>{const h=new THREE.Mesh(new THREE.SphereGeometry(size,10,8),i===activePoint?activePointMaterial:pointMaterial);h.position.copy(s.p);h.renderOrder=10;h.userData.sampleIndex=i;scene.add(h);pointHandles.push(h)});
 }
 function syncTransformProxy(){
-  if(!selected||editPoints||mode!=='orbit'){transform.detach();transformHelper.visible=false;return}
+  if(!selected||editPoints||mode!=='orbit'||!gizmoEnabled){detachTransforms();return}
   transformProxy.position.copy(meshCenter(selected));transformProxy.quaternion.identity();transformProxy.scale.setScalar(1);transformProxy.updateMatrixWorld(true);
-  transform.setMode(gizmoMode);transform.attach(transformProxy);transformHelper.visible=true;
+  for(const t of transformSet){t.control.attach(transformProxy);t.control.enabled=true;t.helper.visible=true}
 }
 function deselect(keepPivot=true){
-  if(!selected)return;clearSelectionOutline();clearPointHandles();transform.detach();transformHelper.visible=false;editPoints=false;
+  if(!selected)return;clearSelectionOutline();clearPointHandles();detachTransforms();editPoints=false;
   selected.mesh.material.emissive.setHex(0);selected=null;if(!keepPivot)setOrbitPivot(null);updateSelectionUI();updateStatus()
 }
 function select(x){
-  clearSelectionOutline();clearPointHandles();transform.detach();transformHelper.visible=false;editPoints=false;
+  clearSelectionOutline();clearPointHandles();detachTransforms();editPoints=false;
   if(selected)selected.mesh.material.emissive.setHex(0);selected=x;
   if(x){x.mesh.material.emissive.setHex(0);loadControls(x);setOrbitPivot(x);showSelectionOutline(x);syncTransformProxy()}else setOrbitPivot(null);
   updateSelectionUI();updateStatus()
 }
-
-function setGizmoMode(next){
-  if(!selected)return;editPoints=false;clearPointHandles();gizmoMode=next;syncTransformProxy();updateSelectionUI();
-  status.textContent=`Transform: ${next==='translate'?'Move':next==='rotate'?'Rotate':'Scale uniformly'} selected Balloon`;
+function toggleGizmo(){
+  if(!selected)return;gizmoEnabled=!gizmoEnabled;if(gizmoEnabled){editPoints=false;clearPointHandles();syncTransformProxy();status.textContent='Universal Gizmo: arrows move • rings rotate • cubes scale'}else{detachTransforms();status.textContent='Universal Gizmo hidden'}updateSelectionUI()
 }
 function setEditPoints(on){
   if(!selected||(selected.settings.kind||'tube')!=='tube')return;
-  editPoints=on;transform.detach();transformHelper.visible=false;activePoint=-1;refreshPointHandles();updateSelectionUI();
+  editPoints=on;detachTransforms();activePoint=-1;refreshPointHandles();updateSelectionUI();
   status.textContent=on?`Edit Tube points • ${selected.samples.length} points • drag to refine${snapEnabled()?' / snap':''}`:'Point editing off';
   if(!on)syncTransformProxy();
 }
@@ -221,21 +222,29 @@ function bakeSelectionTransform(){
   selected.mesh.position.set(0,0,0);selected.mesh.quaternion.identity();selected.mesh.scale.setScalar(1);selected.mesh.updateMatrix();
   rebuild(selected);setOrbitPivot(selected);refreshExport();syncTransformProxy();updateSelectionUI();
 }
-transform.addEventListener('mouseDown',()=>{if(!selected||editPoints)return;checkpoint();gizmoDragging=true;transformProxy.updateMatrixWorld(true);selected.mesh.updateMatrix();gizmoStartProxy=transformProxy.matrixWorld.clone();gizmoStartMesh=selected.mesh.matrix.clone()});
-transform.addEventListener('objectChange',()=>{
-  if(!selected||!gizmoDragging||!gizmoStartProxy||!gizmoStartMesh)return;
+function beginTransform(t){
+  if(!selected||editPoints||gizmoDragging)return;checkpoint();gizmoDragging=true;gizmoMode=t.kind;activeTransform=t;
+  for(const other of transformSet)if(other!==t)other.control.enabled=false;
+  transformProxy.updateMatrixWorld(true);selected.mesh.updateMatrix();gizmoStartProxy=transformProxy.matrixWorld.clone();gizmoStartMesh=selected.mesh.matrix.clone();
+}
+function changeTransform(t){
+  if(!selected||!gizmoDragging||activeTransform!==t||!gizmoStartProxy||!gizmoStartMesh)return;
   enforceUniformScale();transformProxy.updateMatrixWorld(true);
   const delta=transformProxy.matrixWorld.clone().multiply(gizmoStartProxy.clone().invert()),next=delta.multiply(gizmoStartMesh);
   next.decompose(selected.mesh.position,selected.mesh.quaternion,selected.mesh.scale);selected.mesh.updateMatrixWorld(true);setOrbitPivot(selected);refreshExport();
-});
-transform.addEventListener('mouseUp',()=>{if(!selected||!gizmoDragging)return;gizmoDragging=false;bakeSelectionTransform();gizmoStartProxy=null;gizmoStartMesh=null;status.textContent='Transform applied'});
+}
+function endTransform(t){
+  if(!selected||!gizmoDragging||activeTransform!==t)return;gizmoDragging=false;bakeSelectionTransform();gizmoStartProxy=null;gizmoStartMesh=null;activeTransform=null;
+  for(const other of transformSet)other.control.enabled=true;status.textContent='Transform applied';
+}
+for(const t of transformSet){t.control.addEventListener('mouseDown',()=>beginTransform(t));t.control.addEventListener('objectChange',()=>changeTransform(t));t.control.addEventListener('mouseUp',()=>endTransform(t))}
 function pencilOnly(){return !!$('#pencilOnly')?.checked}
-function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');if(m==='orbit')status.textContent='Orbit / Select: 1 finger rotates • 2 fingers pan/pinch • tap selects';else status.textContent=pencilOnly()?'Draw: Pencil draws • 1 finger orbits • 2 fingers pan/pinch':'Draw: finger or Pencil draws • use 2 fingers to navigate'}
+function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');if(m==='orbit')status.textContent='Orbit / Select: free 360° trackball • 2 fingers pan/pinch • tap selects';else status.textContent=pencilOnly()?'Draw: Pencil draws • 1 finger orbits • 2 fingers pan/pinch':'Draw: finger or Pencil draws • use 2 fingers to navigate'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings={...uiSettings(),kind:selected.settings.kind||'tube'};rebuild(selected);setOrbitPivot(selected);if(editPoints)refreshPointHandles();else syncTransformProxy();refreshExport();updateSelectionUI();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.8.6\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.8.6.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.8.6.1\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.8.6.1.obj';a.classList.remove('disabled')}
 
 function surfaceSample(e){eventRay(e);const hit=surfaceTargets.hitFromRay(ray.ray,current?.mesh);if(!hit)return null;const offset=+$('#surfaceOffset').value;return {p:hit.position.clone().addScaledVector(hit.normal,offset),pressure:eventPressure(e),snapped:true,surfaceNormal:hit.normal,surfaceOffset:offset}}
 function snapEnabled(){return $('#snapSurface').checked}
@@ -245,7 +254,7 @@ function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDraw
 function cancelFingerDraft(){if(!drawing||!current)return;disposeItem(current);items=items.filter(x=>x!==current);current=null;drawing=false;activeDrawPlane=null;if(undo.length)undo.pop();refreshExport();updateStatus()}
 function trackballPoint(x,y){const r=renderer.domElement.getBoundingClientRect(),nx=(x-r.left)/r.width*2-1,ny=1-(y-r.top)/r.height*2,rr=nx*nx+ny*ny;return rr<=1?new THREE.Vector3(nx,ny,Math.sqrt(1-rr)):new THREE.Vector3(nx,ny,0).normalize()}
 function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false}}
-function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;const from=trackballPoint(orbitTap.lastX,orbitTap.lastY),to=trackballPoint(e.clientX,e.clientY);orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;from.applyQuaternion(camera.quaternion).normalize();to.applyQuaternion(camera.quaternion).normalize();const q=new THREE.Quaternion().setFromUnitVectors(to,from),offset=camera.position.clone().sub(orbitPivot).applyQuaternion(q);camera.position.copy(orbitPivot).add(offset);camera.up.applyQuaternion(q).normalize();camera.lookAt(orbitPivot);controls.target.copy(orbitPivot)}
+function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;const from=trackballPoint(orbitTap.lastX,orbitTap.lastY),to=trackballPoint(e.clientX,e.clientY);orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;from.applyQuaternion(camera.quaternion).normalize();to.applyQuaternion(camera.quaternion).normalize();const q=new THREE.Quaternion().setFromUnitVectors(to,from),offset=camera.position.clone().sub(orbitPivot).applyQuaternion(q);camera.position.copy(orbitPivot).add(offset);camera.up.applyQuaternion(q).normalize();camera.lookAt(orbitPivot);controls.target.copy(orbitPivot)}
 function finishOrbitTap(e){if(orbitTap&&orbitTap.id===e.pointerId&&!orbitTap.moved&&mode==='orbit'&&!editPoints&&!gizmoDragging){eventRay(e);const hits=ray.intersectObjects(items.map(x=>x.mesh),false);select(hits.length?items.find(x=>x.mesh===hits[0].object):null)}orbitTap=null}
 function touchMetrics(){const pts=[...touchPointers.values()];if(pts.length<2)return null;const a=pts[0],b=pts[1];return{distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),cx:(a.x+b.x)/2,cy:(a.y+b.y)/2}}
 function beginTapGesture(e){if(!tapGesture)tapGesture={started:performance.now(),maxTouches:0,moved:false,starts:new Map()};tapGesture.maxTouches=Math.max(tapGesture.maxTouches,touchPointers.size);tapGesture.starts.set(e.pointerId,{x:e.clientX,y:e.clientY})}
@@ -293,9 +302,8 @@ renderer.domElement.addEventListener('pointercancel',e=>{
   if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()
 },{capture:true});
 
-$('#drawBtn').onclick=()=>{if(editPoints)setEditPoints(false);transform.detach();transformHelper.visible=false;setMode('draw')};$('#orbitBtn').onclick=()=>{setMode('orbit');if(selected&&!editPoints)syncTransformProxy()};
-$('#editPointsBtn').onclick=()=>setEditPoints(!editPoints);$('#deletePointBtn').onclick=deleteActivePoint;$('#reducePointsBtn').onclick=reduceTubePoints;
-$('#moveGizmoBtn').onclick=()=>setGizmoMode('translate');$('#rotateGizmoBtn').onclick=()=>setGizmoMode('rotate');$('#scaleGizmoBtn').onclick=()=>setGizmoMode('scale');
+$('#drawBtn').onclick=()=>{if(editPoints)setEditPoints(false);detachTransforms();setMode('draw')};$('#orbitBtn').onclick=()=>{setMode('orbit');if(selected&&!editPoints)syncTransformProxy()};
+$('#editPointsBtn').onclick=()=>setEditPoints(!editPoints);$('#deletePointBtn').onclick=deleteActivePoint;$('#reducePointsBtn').onclick=reduceTubePoints;$('#gizmoBtn').onclick=toggleGizmo;
 $('#pencilOnly').onchange=()=>{if(fingerDrawId!==null){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null}setMode(mode)};
 $('#creation').addEventListener('change',()=>{if(selected)deselect(true);status.textContent=$('#creation').value==='outline'?'New balloons: closed outline fill':'New balloons: tube stroke'});
 ['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
@@ -311,9 +319,9 @@ $('#nomadDetail').onchange=()=>{status.textContent=`Nomad export detail: ${$('#n
 $('#undoBtn').onclick=doUndo;$('#redoBtn').onclick=doRedo;
 $('#deleteBtn').onclick=()=>{if(!selected)return;checkpoint();const doomed=selected;deselect(true);disposeItem(doomed);items=items.filter(x=>x!==doomed);select(items.at(-1)||null);refreshExport()};$('#clearBtn').onclick=()=>{if(!items.length)return;checkpoint();restore([])};
 $('#exportBtn').addEventListener('click',e=>{if($('#exportBtn').classList.contains('disabled')){e.preventDefault();status.textContent='Nothing to export'}else status.textContent=`OBJ ready • ${items.length} balloon${items.length===1?'':'s'}`});
-$('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');button.disabled=true;button.textContent='Building Live NOM…';try{const detail=$('#nomadDetail').value,result=await buildLiveNomadBalloon(items,THREE,{detail}),url=URL.createObjectURL(new Blob([result.bytes],{type:'application/x-nomad-sculpt'})),a=document.createElement('a');a.href=url;a.download=`MeshUtilz-Live-Nomad-Balloons-v0.8.6-${detail}-${result.count}.nom`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);const tubeText=`${result.tubeCount} live Tube${result.tubeCount===1?'':'s'}`,outlineText=`${result.outlineCount} Outline mesh${result.outlineCount===1?'':'es'}`,points=result.tubeCount?` • ${result.sourcePoints} → ${result.exportPoints} Tube control points`:'';status.textContent=`NOM ready • ${tubeText} • ${outlineText}${points} • ${detail}`}catch(err){status.textContent=`Live NOM export failed: ${err.message}`}finally{button.disabled=false;button.textContent='Save Live Nomad Balloon — NOM'}};
+$('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');button.disabled=true;button.textContent='Building Live NOM…';try{const detail=$('#nomadDetail').value,result=await buildLiveNomadBalloon(items,THREE,{detail}),url=URL.createObjectURL(new Blob([result.bytes],{type:'application/x-nomad-sculpt'})),a=document.createElement('a');a.href=url;a.download=`MeshUtilz-Live-Nomad-Balloons-v0.8.6.1-${detail}-${result.count}.nom`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);const tubeText=`${result.tubeCount} live Tube${result.tubeCount===1?'':'s'}`,outlineText=`${result.outlineCount} Outline mesh${result.outlineCount===1?'':'es'}`,points=result.tubeCount?` • ${result.sourcePoints} → ${result.exportPoints} Tube control points`:'';status.textContent=`NOM ready • ${tubeText} • ${outlineText}${points} • ${detail}`}catch(err){status.textContent=`Live NOM export failed: ${err.message}`}finally{button.disabled=false;button.textContent='Save Live Nomad Balloon — NOM'}};
 
 function resize(){const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(editPoints)refreshPointHandles()}
-function resetInitialView(){controls.target.copy(WORLD_ORIGIN);orbitPivot.copy(WORLD_ORIGIN);camera.position.set(7,7,7);camera.up.set(0,1,0);camera.lookAt(WORLD_ORIGIN);controls.update()}
+function resetInitialView(){controls.target.copy(WORLD_ORIGIN);orbitPivot.copy(WORLD_ORIGIN);camera.position.set(7,7,7);camera.up.set(0,1,0);camera.lookAt(WORLD_ORIGIN)}
 addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,120));if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
-resize();resetInitialView();syncOutputs();updateSelectionUI();setMode('orbit');refreshExport();renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+resize();resetInitialView();syncOutputs();updateSelectionUI();setMode('orbit');refreshExport();renderer.setAnimationLoop(()=>renderer.render(scene,camera));
