@@ -19,24 +19,10 @@ const touchPointers=new Map();let pinchState=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 
 function uiSettings(){return{width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,closed:$('#closed').checked}}
-function meshCenter(x){
-  if(!x)return WORLD_ORIGIN.clone();
-  x.mesh.updateMatrixWorld(true);
-  const g=x.mesh.geometry;
-  if(!g.boundingSphere)g.computeBoundingSphere();
-  return g.boundingSphere?g.boundingSphere.center.clone().applyMatrix4(x.mesh.matrixWorld):x.mesh.getWorldPosition(new THREE.Vector3());
-}
+function meshCenter(x){if(!x)return WORLD_ORIGIN.clone();x.mesh.updateMatrixWorld(true);const g=x.mesh.geometry;if(!g.boundingSphere)g.computeBoundingSphere();return g.boundingSphere?g.boundingSphere.center.clone().applyMatrix4(x.mesh.matrixWorld):x.mesh.getWorldPosition(new THREE.Vector3())}
 function setOrbitPivot(x){orbitPivot=x?meshCenter(x):WORLD_ORIGIN.clone()}
-function keepControlsAligned(){
-  const d=Math.max(.1,camera.position.distanceTo(controls.target));
-  const f=new THREE.Vector3();camera.getWorldDirection(f);
-  controls.target.copy(camera.position).addScaledVector(f,d);
-}
-function viewPlane(){
-  const normal=new THREE.Vector3();camera.getWorldDirection(normal).normalize();
-  const anchor=selected?meshCenter(selected):WORLD_ORIGIN.clone();
-  return new THREE.Plane().setFromNormalAndCoplanarPoint(normal,anchor);
-}
+function keepControlsAligned(){const d=Math.max(.1,camera.position.distanceTo(controls.target));const f=new THREE.Vector3();camera.getWorldDirection(f);controls.target.copy(camera.position).addScaledVector(f,d)}
+function viewPlane(){const normal=new THREE.Vector3();camera.getWorldDirection(normal).normalize();const anchor=selected?meshCenter(selected):WORLD_ORIGIN.clone();return new THREE.Plane().setFromNormalAndCoplanarPoint(normal,anchor)}
 function plane(){const v=$('#plane').value;if(v==='VIEW')return viewPlane();return v==='XY'?new THREE.Plane(new THREE.Vector3(0,0,1),0):v==='YZ'?new THREE.Plane(new THREE.Vector3(1,0,0),0):new THREE.Plane(new THREE.Vector3(0,1,0),0)}
 function eventRay(e){const r=renderer.domElement.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(ndc,camera)}
 function pointFromEvent(e){eventRay(e);const p=new THREE.Vector3(),drawPlane=activeDrawPlane||plane();return ray.ray.intersectPlane(drawPlane,p)?p:null}
@@ -61,7 +47,8 @@ function resample(samples,settings){
     const bodyShape=Math.sin(Math.PI*u);
     const inflation=1+settings.bulge*Math.pow(Math.max(0,bodyShape),0.7);
     let radius=base*pressureFactor*inflation;
-    if(settings.taper){
+    // End taper only belongs to a capped balloon. Open balloons keep a real open mouth.
+    if(settings.closed&&settings.taper){
       const edge=Math.min(u,1-u);
       const span=THREE.MathUtils.lerp(0.035,0.2,settings.endSoft);
       const tip=THREE.MathUtils.smoothstep(edge,0,span);
@@ -72,100 +59,38 @@ function resample(samples,settings){
   }
   return{path,radii:smoothRadii(r,3)};
 }
-function rebuild(x){
-  x.mesh.geometry.dispose();
-  const {path,radii}=resample(x.samples,x.settings);
-  x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,closed:!!x.settings.closed});
-  x.mesh.material.wireframe=$('#wire').checked;
-}
+function rebuild(x){x.mesh.geometry.dispose();const {path,radii}=resample(x.samples,x.settings);x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,closed:x.settings.closed===true});x.mesh.material.wireframe=$('#wire').checked}
 function addItem(samples,settings=uiSettings(),autoSelect=true){const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material()),x={samples,settings:{bulge:.18,endSoft:.65,closed:false,...settings},mesh};items.push(x);scene.add(mesh);rebuild(x);if(autoSelect)select(x);return x}
 function updateStatus(){const verts=items.reduce((n,x)=>n+(x.mesh.geometry.getAttribute('position')?.count||0),0);status.textContent=`${items.length} balloon${items.length===1?'':'s'} • ${verts} vertices${selected?' • selected':''}`}
-function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#closed').checked=!!x.settings.closed;syncOutputs()}
+function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#closed').checked=x.settings.closed===true;syncOutputs()}
 function updateSelectionUI(){const on=!!selected;$('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#selectionLabel').textContent=on?`Selected balloon ${items.indexOf(selected)+1}`:'No balloon selected'}
 function select(x){if(selected)selected.mesh.material.emissive.setHex(0);selected=x;if(x){x.mesh.material.emissive.setHex(0x29405f);loadControls(x);setOrbitPivot(x)}else setOrbitPivot(null);updateSelectionUI();updateStatus()}
 function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');status.textContent=m==='draw'?'Draw: Pencil draws • finger orbits • pinch zooms':'Orbit / Select: finger rotates • pinch zooms • tap selects'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);setOrbitPivot(selected);refreshExport();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.10\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.10.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.11\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.11.obj';a.classList.remove('disabled')}
 
 function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#plane').value==='VIEW'?'Drawing balloon on view plane…':'Drawing balloon…'}
 function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
 function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDrawPlane=null;return}if(current.samples.length<2){disposeItem(current);items=items.filter(x=>x!==current);current=null;activeDrawPlane=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;activeDrawPlane=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
 function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false}}
-function trackOrbitMove(e){
-  if(!orbitTap||orbitTap.id!==e.pointerId)return;
-  const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;
-  if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;
-  orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;
-  if(!orbitTap.moved)return;
-  const speed=.006;
-  const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-dx*speed);
-  const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();
-  const pitch=new THREE.Quaternion().setFromAxisAngle(right,-dy*speed);
-  const offset=camera.position.clone().sub(orbitPivot).applyQuaternion(yaw).applyQuaternion(pitch);
-  camera.position.copy(orbitPivot).add(offset);
-  camera.quaternion.premultiply(yaw).premultiply(pitch).normalize();
-  keepControlsAligned();
-}
+function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;const speed=.006;const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-dx*speed);const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const pitch=new THREE.Quaternion().setFromAxisAngle(right,-dy*speed);const offset=camera.position.clone().sub(orbitPivot).applyQuaternion(yaw).applyQuaternion(pitch);camera.position.copy(orbitPivot).add(offset);camera.quaternion.premultiply(yaw).premultiply(pitch).normalize();keepControlsAligned()}
 function finishOrbitTap(e){if(orbitTap&&orbitTap.id===e.pointerId&&!orbitTap.moved&&mode==='orbit'){eventRay(e);const hits=ray.intersectObjects(items.map(x=>x.mesh),false);select(hits.length?items.find(x=>x.mesh===hits[0].object):null)}orbitTap=null}
 function touchDistance(){const pts=[...touchPointers.values()];return pts.length<2?0:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y)}
-function touchDown(e){
-  touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}
-  if(touchPointers.size===2){orbitTap=null;pinchState={distance:Math.max(1,touchDistance())}}
-}
-function touchMove(e){
-  if(!touchPointers.has(e.pointerId))return;
-  touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(touchPointers.size>=2){
-    const d=Math.max(1,touchDistance());
-    if(!pinchState)pinchState={distance:d};
-    const ratio=d/pinchState.distance;
-    if(Math.abs(ratio-1)>.002){
-      const forward=new THREE.Vector3();camera.getWorldDirection(forward);
-      const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));
-      let step=Math.log(ratio)*scale*.85;
-      const next=camera.position.clone().addScaledVector(forward,step);
-      const minDist=.18,maxDist=250;
-      const dist=next.distanceTo(orbitPivot);
-      if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);
-      if(dist<=maxDist)camera.position.addScaledVector(forward,step);
-      keepControlsAligned();
-    }
-    pinchState.distance=d;return;
-  }
-  trackOrbitMove(e);
-}
-function touchUp(e){
-  const wasSingle=touchPointers.size===1;
-  if(wasSingle)finishOrbitTap(e);
-  touchPointers.delete(e.pointerId);
-  if(touchPointers.size<2)pinchState=null;
-  if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}
-  else if(touchPointers.size===0)orbitTap=null;
-}
+function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}if(touchPointers.size===2){orbitTap=null;pinchState={distance:Math.max(1,touchDistance())}}}
+function touchMove(e){if(!touchPointers.has(e.pointerId))return;touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size>=2){const d=Math.max(1,touchDistance());if(!pinchState)pinchState={distance:d};const ratio=d/pinchState.distance;if(Math.abs(ratio-1)>.002){const forward=new THREE.Vector3();camera.getWorldDirection(forward);const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));let step=Math.log(ratio)*scale*.85;const next=camera.position.clone().addScaledVector(forward,step);const minDist=.18,maxDist=250;const dist=next.distanceTo(orbitPivot);if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);if(dist<=maxDist)camera.position.addScaledVector(forward,step);keepControlsAligned()}pinchState.distance=d;return}trackOrbitMove(e)}
+function touchUp(e){const wasSingle=touchPointers.size===1;if(wasSingle)finishOrbitTap(e);touchPointers.delete(e.pointerId);if(touchPointers.size<2)pinchState=null;if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}else if(touchPointers.size===0)orbitTap=null}
 
-renderer.domElement.addEventListener('pointerdown',e=>{
-  if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchDown(e);return}
-  if(mode==='orbit'){trackOrbitDown(e);return}
-  e.stopImmediatePropagation();startDraw(e);
-},{capture:true});
-renderer.domElement.addEventListener('pointermove',e=>{
-  if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchMove(e);return}
-  if(mode==='orbit'){trackOrbitMove(e);return}
-  e.stopImmediatePropagation();moveDraw(e);
-},{capture:true});
-renderer.domElement.addEventListener('pointerup',e=>{
-  if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchUp(e);return}
-  if(mode==='orbit'){finishOrbitTap(e);return}
-  e.stopImmediatePropagation();finishStroke();
-},{capture:true});
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchDown(e);return}if(mode==='orbit'){trackOrbitDown(e);return}e.stopImmediatePropagation();startDraw(e)},{capture:true});
+renderer.domElement.addEventListener('pointermove',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchMove(e);return}if(mode==='orbit'){trackOrbitMove(e);return}e.stopImmediatePropagation();moveDraw(e)},{capture:true});
+renderer.domElement.addEventListener('pointerup',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchUp(e);return}if(mode==='orbit'){finishOrbitTap(e);return}e.stopImmediatePropagation();finishStroke()},{capture:true});
 renderer.domElement.addEventListener('pointercancel',e=>{if(e.pointerType==='touch'){touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;return}if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()},{capture:true});
 
 $('#drawBtn').onclick=()=>setMode('draw');$('#orbitBtn').onclick=()=>setMode('orbit');
-['width','pressure','bulge','endSoft','smooth','sides','taper','closed'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
+['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
+$('#closed').addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#closed').checked?'New balloons: closed ends':'New balloons: open ends'});
 $('#wire').oninput=()=>{items.forEach(rebuild);refreshExport()};$('#applyBtn').onclick=()=>applySelected(true);
 $('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(s=>({p:s.p.clone(),pressure:s.pressure})),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
 $('#undoBtn').onclick=()=>{if(undo.length){redo.push(snapshot());restore(undo.pop())}};$('#redoBtn').onclick=()=>{if(redo.length){undo.push(snapshot());restore(redo.pop())}};
