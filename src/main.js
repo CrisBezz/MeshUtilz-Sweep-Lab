@@ -15,7 +15,7 @@ scene.add(new THREE.AxesHelper(0.75));
 const $=s=>document.querySelector(s),status=$('#status'),ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
 let items=[],current=null,drawing=false,mode='draw',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null,activeDrawPlane=null;
 let orbitPivot=WORLD_ORIGIN.clone();
-const touchPointers=new Map();let pinchState=null;
+const touchPointers=new Map();let pinchState=null,tapGesture=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 
 function uiSettings(){return{width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,loop:$('#loop').checked,caps:$('#caps').checked}}
@@ -32,6 +32,8 @@ function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArr
 function checkpoint(){undo.push(snapshot());if(undo.length>30)undo.shift();redo=[]}
 function disposeItem(x){scene.remove(x.mesh);x.mesh.geometry.dispose();x.mesh.material.dispose()}
 function restore(snap){items.forEach(disposeItem);items=[];selected=null;for(const d of snap){const x=addItem(d.samples.map(s=>({p:new THREE.Vector3(...s.p),pressure:s.pressure})),d.settings,false);x.mesh.position.fromArray(d.position||[0,0,0])}select(items.at(-1)||null);refreshExport();updateStatus()}
+function doUndo(){if(!undo.length){status.textContent='Nothing to undo';return}redo.push(snapshot());restore(undo.pop());status.textContent='Undo'}
+function doRedo(){if(!redo.length){status.textContent='Nothing to redo';return}undo.push(snapshot());restore(redo.pop());status.textContent='Redo'}
 
 function resample(samples,settings){
   if(samples.length<2)return{path:[],radii:[]};
@@ -77,8 +79,8 @@ function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);selected.mesh.material.emissive.setHex(0x29405f);setOrbitPivot(selected);refreshExport();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.12\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.12.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.6.13\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.6.13.obj';a.classList.remove('disabled')}
 
 function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#plane').value==='VIEW'?'Drawing balloon on view plane…':'Drawing balloon…'}
 function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
@@ -87,7 +89,24 @@ function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,last
 function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;const speed=.006;const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-dx*speed);const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const pitch=new THREE.Quaternion().setFromAxisAngle(right,-dy*speed);const offset=camera.position.clone().sub(orbitPivot).applyQuaternion(yaw).applyQuaternion(pitch);camera.position.copy(orbitPivot).add(offset);camera.quaternion.premultiply(yaw).premultiply(pitch).normalize();keepControlsAligned()}
 function finishOrbitTap(e){if(orbitTap&&orbitTap.id===e.pointerId&&!orbitTap.moved&&mode==='orbit'){eventRay(e);const hits=ray.intersectObjects(items.map(x=>x.mesh),false);select(hits.length?items.find(x=>x.mesh===hits[0].object):null)}orbitTap=null}
 function touchMetrics(){const pts=[...touchPointers.values()];if(pts.length<2)return null;const a=pts[0],b=pts[1];return{distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),cx:(a.x+b.x)/2,cy:(a.y+b.y)/2}}
-function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}if(touchPointers.size===2){orbitTap=null;pinchState=touchMetrics()}}
+function beginTapGesture(e){
+  if(!tapGesture)tapGesture={started:performance.now(),maxTouches:0,moved:false,starts:new Map()};
+  tapGesture.maxTouches=Math.max(tapGesture.maxTouches,touchPointers.size);
+  tapGesture.starts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+}
+function markTapMovement(e){
+  if(!tapGesture||tapGesture.moved)return;
+  const p=tapGesture.starts.get(e.pointerId);if(!p)return;
+  if(Math.hypot(e.clientX-p.x,e.clientY-p.y)>12)tapGesture.moved=true;
+}
+function finishTapGesture(){
+  if(!tapGesture)return;
+  const g=tapGesture;tapGesture=null;
+  if(g.moved||performance.now()-g.started>500)return;
+  if(g.maxTouches===2)doUndo();
+  else if(g.maxTouches===3)doRedo();
+}
+function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});beginTapGesture(e);if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}if(touchPointers.size===2){orbitTap=null;pinchState=touchMetrics()}}
 function panView(dx,dy){
   const h=Math.max(1,renderer.domElement.clientHeight);
   const dist=Math.max(.2,camera.position.distanceTo(orbitPivot));
@@ -99,6 +118,7 @@ function panView(dx,dy){
 }
 function touchMove(e){
   if(!touchPointers.has(e.pointerId))return;
+  markTapMovement(e);
   touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(touchPointers.size>=2){
     const m=touchMetrics();if(!m)return;
@@ -120,19 +140,19 @@ function touchMove(e){
   }
   trackOrbitMove(e);
 }
-function touchUp(e){const wasSingle=touchPointers.size===1;if(wasSingle)finishOrbitTap(e);touchPointers.delete(e.pointerId);if(touchPointers.size<2)pinchState=null;if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}else if(touchPointers.size===0)orbitTap=null}
+function touchUp(e){const wasSingle=touchPointers.size===1;if(wasSingle)finishOrbitTap(e);touchPointers.delete(e.pointerId);if(touchPointers.size<2)pinchState=null;if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}else if(touchPointers.size===0){orbitTap=null;finishTapGesture()}}
 
 renderer.domElement.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchDown(e);return}if(mode==='orbit'){trackOrbitDown(e);return}e.stopImmediatePropagation();startDraw(e)},{capture:true});
 renderer.domElement.addEventListener('pointermove',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchMove(e);return}if(mode==='orbit'){trackOrbitMove(e);return}e.stopImmediatePropagation();moveDraw(e)},{capture:true});
 renderer.domElement.addEventListener('pointerup',e=>{if(e.pointerType==='touch'){e.preventDefault();e.stopImmediatePropagation();touchUp(e);return}if(mode==='orbit'){finishOrbitTap(e);return}e.stopImmediatePropagation();finishStroke()},{capture:true});
-renderer.domElement.addEventListener('pointercancel',e=>{if(e.pointerType==='touch'){touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;return}if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()},{capture:true});
+renderer.domElement.addEventListener('pointercancel',e=>{if(e.pointerType==='touch'){touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;tapGesture=null;return}if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()},{capture:true});
 
 $('#drawBtn').onclick=()=>setMode('draw');$('#orbitBtn').onclick=()=>setMode('orbit');
 ['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
 ['loop','caps'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#loop').checked?'New balloons: looped':($('#caps').checked?'New balloons: open path with caps':'New balloons: open path without caps')}));
 $('#wire').oninput=()=>{items.forEach(rebuild);refreshExport()};$('#applyBtn').onclick=()=>applySelected(true);
 $('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(s=>({p:s.p.clone(),pressure:s.pressure})),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
-$('#undoBtn').onclick=()=>{if(undo.length){redo.push(snapshot());restore(undo.pop())}};$('#redoBtn').onclick=()=>{if(redo.length){undo.push(snapshot());restore(redo.pop())}};
+$('#undoBtn').onclick=doUndo;$('#redoBtn').onclick=doRedo;
 $('#deleteBtn').onclick=()=>{if(!selected)return;checkpoint();disposeItem(selected);items=items.filter(x=>x!==selected);select(items.at(-1)||null);refreshExport()};$('#clearBtn').onclick=()=>{if(!items.length)return;checkpoint();restore([])};
 $('#exportBtn').addEventListener('click',e=>{if($('#exportBtn').classList.contains('disabled')){e.preventDefault();status.textContent='Nothing to export'}else status.textContent=`OBJ ready • ${items.length} balloon${items.length===1?'':'s'}`});
 
