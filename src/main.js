@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildBalloon,smoothRadii} from './balloonGeometry.js';
 import {buildOutlineBalloon} from './outlineGeometry.js';
+import {SurfaceTargetRegistry,loadReferenceMesh} from './referenceSurface.js';
 
 const host=document.querySelector('#viewport'),scene=new THREE.Scene();
 scene.background=new THREE.Color(0x22262d);
@@ -14,10 +15,14 @@ scene.add(new THREE.GridHelper(20,40,0x657080,0x343a44));
 scene.add(new THREE.AxesHelper(0.75));
 
 const $=s=>document.querySelector(s),status=$('#status'),ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
+$('#plane').parentElement.insertAdjacentHTML('afterend','<section class="reference-panel"><strong>Reference Surface</strong><input id="referenceFile" type="file" accept=".obj,.glb,.gltf" hidden><button id="loadReferenceBtn">Load Reference Mesh</button><span id="referenceStatus">No reference mesh loaded</span><label><input id="snapSurface" type="checkbox"> Snap to Surface <small>(Tube only)</small></label><label><input id="showReference" type="checkbox" checked> Show Reference Mesh</label><label>Surface offset <input id="surfaceOffset" type="range" min="-0.50" max="0.50" value="0.02" step="0.01"><output id="surfaceOffsetOut">0.02</output></label></section>');
+document.title='MeshUtilz Balloon v0.7.5';document.querySelector('header span').textContent='Balloon v0.7.5';
 let items=[],current=null,drawing=false,mode='draw',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null,activeDrawPlane=null;
 let orbitPivot=WORLD_ORIGIN.clone();
 const touchPointers=new Map();let pinchState=null,tapGesture=null,selectionOutline=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
+const referenceGroup=new THREE.Group(),surfaceTargets=new SurfaceTargetRegistry();scene.add(referenceGroup);
+let referenceRoot=null;
 const selectionOutlineMaterial=new THREE.MeshBasicMaterial({color:0xff2020,side:THREE.BackSide,depthWrite:false});
 
 function uiSettings(){return{kind:$('#creation').value,width:+$('#width').value,pressure:+$('#pressure').value,bulge:+$('#bulge').value,endSoft:+$('#endSoft').value,smooth:+$('#smooth').value,sides:+$('#sides').value,taper:$('#taper').checked,loop:$('#loop').checked,caps:$('#caps').checked}}
@@ -41,10 +46,11 @@ function showSelectionOutline(x){
 }
 function refreshSelectionOutline(x){if(selected===x)showSelectionOutline(x)}
 
-function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure})),settings:{...x.settings},position:x.mesh.position.toArray()}))}
+function cloneSample(s){return {p:s.p.clone(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.clone():null,surfaceOffset:s.surfaceOffset??0}}
+function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray()}))}
 function checkpoint(){undo.push(snapshot());if(undo.length>30)undo.shift();redo=[]}
 function disposeItem(x){if(selectionOutline?.parent===x.mesh)clearSelectionOutline();scene.remove(x.mesh);x.mesh.geometry.dispose();x.mesh.material.dispose()}
-function restore(snap){clearSelectionOutline();items.forEach(disposeItem);items=[];selected=null;for(const d of snap){const x=addItem(d.samples.map(s=>({p:new THREE.Vector3(...s.p),pressure:s.pressure})),d.settings,false);x.mesh.position.fromArray(d.position||[0,0,0])}select(items.at(-1)||null);refreshExport();updateStatus()}
+function restore(snap){clearSelectionOutline();items.forEach(disposeItem);items=[];selected=null;for(const d of snap){const x=addItem(d.samples.map(s=>({p:new THREE.Vector3(...s.p),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?new THREE.Vector3(...s.surfaceNormal):null,surfaceOffset:s.surfaceOffset??0})),d.settings,false);x.mesh.position.fromArray(d.position||[0,0,0])}select(items.at(-1)||null);refreshExport();updateStatus()}
 function doUndo(){if(!undo.length){status.textContent='Nothing to undo';return}redo.push(snapshot());restore(undo.pop());status.textContent='Undo'}
 function doRedo(){if(!redo.length){status.textContent='Nothing to redo';return}undo.push(snapshot());restore(redo.pop());status.textContent='Redo'}
 
@@ -107,11 +113,13 @@ function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings=uiSettings();rebuild(selected);setOrbitPivot(selected);refreshExport();updateSelectionUI();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.7.4\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.7.4.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.7.5\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.7.5.obj';a.classList.remove('disabled')}
 
-function startDraw(e){activeDrawPlane=plane().clone();const p=pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([{p,pressure:eventPressure(e)}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#creation').value==='outline'?'Drawing closed outline…':'Drawing tube balloon…'}
-function moveDraw(e){if(!drawing||!current)return;const p=pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push({p,pressure:eventPressure(e)});rebuild(current);updateStatus()}}
+function surfaceSample(e){eventRay(e);const hit=surfaceTargets.hitFromRay(ray.ray);if(!hit)return null;const offset=+$('#surfaceOffset').value;return {p:hit.position.clone().addScaledVector(hit.normal,offset),pressure:eventPressure(e),snapped:true,surfaceNormal:hit.normal,surfaceOffset:offset}}
+function snapEnabled(){return $('#snapSurface').checked&&$('#creation').value==='tube'}
+function startDraw(e){const snap=snapEnabled(),sample=snap?surfaceSample(e):null;if(snap&&!sample){status.textContent='Snap: point at the reference mesh to start a tube';return}activeDrawPlane=snap?null:plane().clone();const p=sample?.p||pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([sample||{p,pressure:eventPressure(e),snapped:false,surfaceNormal:null,surfaceOffset:0}],uiSettings(),false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#creation').value==='outline'?'Drawing closed outline…':'Drawing tube balloon…'}
+function moveDraw(e){if(!drawing||!current)return;const sample=current.settings.kind==='tube'&&$('#snapSurface').checked?surfaceSample(e):null;if(current.settings.kind==='tube'&&$('#snapSurface').checked&&!sample)return;const p=sample?.p||pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push(sample||{p,pressure:eventPressure(e),snapped:false,surfaceNormal:null,surfaceOffset:0});rebuild(current);updateStatus()}}
 function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDrawPlane=null;return}const minimum=current.settings.kind==='outline'?3:2;if(current.samples.length<minimum){disposeItem(current);items=items.filter(x=>x!==current);current=null;activeDrawPlane=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;activeDrawPlane=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
 function trackOrbitDown(e){orbitTap={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false}}
 function trackOrbitMove(e){if(!orbitTap||orbitTap.id!==e.pointerId)return;const dx=e.clientX-orbitTap.lastX,dy=e.clientY-orbitTap.lastY;if(Math.hypot(e.clientX-orbitTap.x,e.clientY-orbitTap.y)>6)orbitTap.moved=true;orbitTap.lastX=e.clientX;orbitTap.lastY=e.clientY;if(!orbitTap.moved)return;const speed=.006;const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-dx*speed);const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const pitch=new THREE.Quaternion().setFromAxisAngle(right,-dy*speed);const offset=camera.position.clone().sub(orbitPivot).applyQuaternion(yaw).applyQuaternion(pitch);camera.position.copy(orbitPivot).add(offset);camera.quaternion.premultiply(yaw).premultiply(pitch).normalize();keepControlsAligned()}
@@ -135,7 +143,12 @@ $('#creation').addEventListener('change',()=>{if(selected)deselect(true);status.
 ['width','pressure','bulge','endSoft','smooth','sides','taper'].forEach(id=>$('#'+id).addEventListener('input',()=>{syncOutputs();if(selected)applySelected(false)}));
 ['loop','caps'].forEach(id=>$('#'+id).addEventListener('change',()=>{if(selected)applySelected(false);else status.textContent=$('#loop').checked?'New tube balloons: looped':($('#caps').checked?'New tube balloons: open path with caps':'New tube balloons: open path without caps')}));
 $('#wire').oninput=()=>{items.forEach(rebuild);refreshExport()};$('#applyBtn').onclick=()=>applySelected(true);$('#deselectBtn').onclick=()=>deselect(true);
-$('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(s=>({p:s.p.clone(),pressure:s.pressure})),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
+$('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(cloneSample),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
+$('#loadReferenceBtn').onclick=()=>$('#referenceFile').click();
+$('#referenceFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;$('#referenceStatus').textContent=`Loading ${file.name}…`;try{const root=await loadReferenceMesh(file);if(referenceRoot){surfaceTargets.unregister(referenceRoot);referenceGroup.remove(referenceRoot)}referenceRoot=root;referenceRoot.visible=$('#showReference').checked;referenceGroup.add(root);surfaceTargets.register(root);$('#referenceStatus').textContent=`Loaded ${file.name}`}catch(err){$('#referenceStatus').textContent=`Load failed: ${err.message}`}finally{e.target.value=''}};
+$('#showReference').onchange=e=>{if(referenceRoot)referenceRoot.visible=e.target.checked};
+$('#surfaceOffset').oninput=()=>$('#surfaceOffsetOut').value=(+$('#surfaceOffset').value).toFixed(2);
+$('#snapSurface').onchange=()=>{status.textContent=$('#snapSurface').checked?'Surface Snap enabled for new Tube Balloon strokes':'Surface Snap off — drawing plane active'};
 $('#undoBtn').onclick=doUndo;$('#redoBtn').onclick=doRedo;
 $('#deleteBtn').onclick=()=>{if(!selected)return;checkpoint();const doomed=selected;deselect(true);disposeItem(doomed);items=items.filter(x=>x!==doomed);select(items.at(-1)||null);refreshExport()};$('#clearBtn').onclick=()=>{if(!items.length)return;checkpoint();restore([])};
 $('#exportBtn').addEventListener('click',e=>{if($('#exportBtn').classList.contains('disabled')){e.preventDefault();status.textContent='Nothing to export'}else status.textContent=`OBJ ready • ${items.length} balloon${items.length===1?'':'s'}`});
