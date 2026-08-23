@@ -3,8 +3,9 @@
   ready(()=>{
     const $=s=>document.querySelector(s),aside=$('aside'),status=$('#status');
     if(!aside)return;
-    document.title='MeshUtilz Balloon v0.9.4';
-    const header=$('header span');if(header)header.textContent='Balloon v0.9.4';
+    const build=window.BALLOON_BUILD||'0.9.4';
+    document.title=`MeshUtilz Balloon v${build}`;
+    const header=$('header span');if(header)header.textContent=`Balloon v${build}`;
 
     const section=document.createElement('details');section.className='ui-section outliner-section';section.open=true;
     const summary=document.createElement('summary');summary.textContent='Outliner';
@@ -67,6 +68,6 @@
       .outliner-delete{font-size:16px!important}
     `;document.head.appendChild(style);
     setInterval(render,220);render();
-    if(status)status.textContent='v0.9.4 • Outliner visibility and filtering tools';
+    if(status)status.textContent=`v${build} • Outliner visibility and filtering tools`;
   });
 })();
