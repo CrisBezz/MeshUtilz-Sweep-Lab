@@ -2,8 +2,8 @@
   const onReady=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   onReady(()=>{
     const $=s=>document.querySelector(s);
-    document.title='MeshUtilz Balloon v0.8.9';
-    const header=document.querySelector('header span');if(header)header.textContent='Balloon v0.8.9';
+    document.title='MeshUtilz Balloon v0.8.9.1';
+    const header=document.querySelector('header span');if(header)header.textContent='Balloon v0.8.9.1';
 
     // Keep the proven NOM exporter/event wiring from main.js, but move its controls
     // into a compact row high in the panel so they cannot be clipped by the compact iPad UI.
@@ -26,11 +26,11 @@
       const label=oldWidth.closest('label');
       const initial=Math.max(.001,Number(oldWidth.value)||.42);
       const hidden=document.createElement('input');hidden.type='hidden';hidden.id='width';hidden.value=String(initial);
-      const slider=document.createElement('input');slider.type='range';slider.id='widthInfinite';slider.min='-100';slider.max='100';slider.step='1';slider.value='0';
+      const slider=document.createElement('input');slider.type='range';slider.id='widthInfinite';slider.min='-100';slider.max='100';slider.step='1';slider.value='0';slider.setAttribute('aria-label','Infinite balloon width adjustment');
       oldWidth.replaceWith(hidden);hidden.insertAdjacentElement('afterend',slider);
       if(label){
         const textNode=[...label.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);
-        if(textNode)textNode.textContent='Balloon width / depth — infinite drag ';
+        if(textNode)textNode.textContent='Balloon width / depth — infinite drag ∞ ';
       }
 
       let gestureStart=initial,current=initial,lastSelectedKey='',creationWidth=initial;
@@ -80,10 +80,15 @@
 
     const style=document.createElement('style');
     style.textContent=`
+      aside{overflow-y:auto!important;overflow-x:hidden!important;min-height:0!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:28px!important}
       .nomad-export-row{display:grid;grid-template-columns:auto 82px 1fr;gap:5px;align-items:center;margin:3px 0 4px;padding:4px 5px;border:1px solid rgba(255,255,255,.14);border-radius:6px}
       .nomad-export-title{font-size:10px;font-weight:700;opacity:.82}
       .nomad-export-row select,.nomad-export-row button{min-width:0;margin:0;padding:4px 5px;font-size:10px}
-      #widthInfinite{touch-action:none}
+      #widthInfinite{-webkit-appearance:none;appearance:none;width:100%;height:24px;touch-action:none;cursor:ew-resize;background:repeating-linear-gradient(90deg,rgba(255,255,255,.42) 0 1px,transparent 1px 9px);border:0;border-radius:0}
+      #widthInfinite::-webkit-slider-runnable-track{height:20px;background:transparent;border:0}
+      #widthInfinite::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:3px;height:24px;margin-top:-2px;background:rgba(255,255,255,.92);border:0;border-radius:0;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+      #widthInfinite::-moz-range-track{height:20px;background:transparent;border:0}
+      #widthInfinite::-moz-range-thumb{width:3px;height:24px;background:rgba(255,255,255,.92);border:0;border-radius:0}
     `;
     document.head.appendChild(style);
 
