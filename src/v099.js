@@ -2,7 +2,7 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status');
-    const build=window.BALLOON_BUILD||'0.9.9';
+    const build=window.BALLOON_BUILD||'0.9.9.1';
     const storageKey='meshutilz-ui-sections-v099';
 
     document.title=`MeshUtilz Balloon v${build}`;
@@ -19,6 +19,24 @@
         if(Object.prototype.hasOwnProperty.call(saved,title))d.open=!!saved[title];
         d.addEventListener('toggle',()=>{saved[title]=d.open;try{localStorage.setItem(storageKey,JSON.stringify(saved))}catch{}});
       }
+    };
+
+    // Snap to Surface is a creation behaviour, not a reference-only behaviour.
+    // Keep it in Create even when no reference mesh exists; snapping can also use created balloons.
+    const ensureSnapPlacement=()=>{
+      const sections=[...document.querySelectorAll('aside > details.ui-section')];
+      const create=sections.find(d=>sectionTitle(d)==='Create');
+      const body=create?.querySelector(':scope > .ui-section-body');
+      const snap=$('#snapSurface'),label=snap?.closest('label');
+      if(!body||!label)return false;
+      let toggles=body.querySelector('.create-toggles-inline');
+      if(!toggles){
+        toggles=document.createElement('div');toggles.className='create-toggles-inline';
+        const plane=$('#plane')?.closest('label');
+        if(plane?.parentElement===body)body.insertBefore(toggles,plane);else body.appendChild(toggles);
+      }
+      if(label.parentElement!==toggles)toggles.appendChild(label);
+      return true;
     };
 
     // Final load-order guard. It only repairs UI placement; modelling, geometry and gestures stay untouched.
@@ -40,11 +58,12 @@
     const checkReady=()=>{
       bindSections();
       const referenceOK=ensureReference();
+      const snapOK=ensureSnapPlacement();
       const required=[
         ['viewport canvas',!!document.querySelector('#viewport canvas')],
         ['Draw',!!$('#drawBtn')],['Orbit',!!$('#orbitBtn')],['Creation',!!$('#creation')],
         ['Project',!!$('#saveProjectBtn')&&!!$('#loadProjectBtn')],
-        ['Outliner',!!window.MeshUtilzOutlinerAPI],['Reference',referenceOK]
+        ['Outliner',!!window.MeshUtilzOutlinerAPI],['Reference',referenceOK],['Snap',snapOK]
       ];
       const missing=required.filter(x=>!x[1]).map(x=>x[0]);
       if(!missing.length){
