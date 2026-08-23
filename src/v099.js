@@ -2,7 +2,7 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status'),aside=$('aside');
-    const build=window.BALLOON_BUILD||'0.9.9.3';
+    const build=window.BALLOON_BUILD||'1.0.0';
     const storageKey='meshutilz-ui-sections-v099';
 
     document.title=`MeshUtilz Balloon v${build}`;
@@ -63,7 +63,7 @@
       if(body&&panel&&panel.parentElement!==body)body.appendChild(panel);
       if(panel&&!panel.querySelector('.reference-v092-tools')){
         if(!document.querySelector('script[data-v099-ref-recovery]')){
-          const s=document.createElement('script');s.type='module';s.dataset.v099RefRecovery='1';s.src=`./src/v092.js?v=0993-recover-${Date.now()}`;document.body.appendChild(s);
+          const s=document.createElement('script');s.type='module';s.dataset.v099RefRecovery='1';s.src=`./src/v092.js?v=1000-recover-${Date.now()}`;document.body.appendChild(s);
         }
       }
       return !!(body&&panel);
@@ -81,7 +81,7 @@
       ];
       const missing=required.filter(x=>!x[1]).map(x=>x[0]);
       if(!missing.length){
-        if(status)status.textContent=`v${build} • Release candidate ready`;
+        if(status)status.textContent=`v${build} • Stable release ready`;
         return true;
       }
       if(status)status.textContent=`v${build} • Initialising ${missing.join(', ')}…`;
