@@ -2,8 +2,8 @@
   const onReady=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   onReady(()=>{
     const $=s=>document.querySelector(s);
-    document.title='MeshUtilz Balloon v0.8.9.1';
-    const header=document.querySelector('header span');if(header)header.textContent='Balloon v0.8.9.1';
+    document.title='MeshUtilz Balloon v0.8.9.2';
+    const header=document.querySelector('header span');if(header)header.textContent='Balloon v0.8.9.2';
 
     // Keep the proven NOM exporter/event wiring from main.js, but move its controls
     // into a compact row high in the panel so they cannot be clipped by the compact iPad UI.
@@ -18,28 +18,30 @@
       if(nomadHint)nomadHint.remove();
     }
 
-    // Replace the finite absolute width slider with a centred, repeatable multiplier slider.
-    // main.js continues to read #width as an absolute value through a hidden input, so creation,
-    // rebuild, project save/load and the existing NOM exporter keep their established data path.
+    // Infinite width scrubber. The visible ruler is a true drag surface rather than a native
+    // range control, which makes continuous Pencil/finger dragging reliable on iPadOS.
+    // main.js still reads #width as an absolute hidden value, preserving existing geometry,
+    // project save/load and NOM export behaviour.
     const oldWidth=$('#width'),out=$('#widthOut');
     if(oldWidth&&out){
       const label=oldWidth.closest('label');
       const initial=Math.max(.001,Number(oldWidth.value)||.42);
       const hidden=document.createElement('input');hidden.type='hidden';hidden.id='width';hidden.value=String(initial);
-      const slider=document.createElement('input');slider.type='range';slider.id='widthInfinite';slider.min='-100';slider.max='100';slider.step='1';slider.value='0';slider.setAttribute('aria-label','Infinite balloon width adjustment');
+      const slider=document.createElement('div');slider.id='widthInfinite';slider.className='infinite-ruler';slider.tabIndex=0;slider.setAttribute('role','slider');slider.setAttribute('aria-label','Infinite balloon width adjustment');slider.innerHTML='<span class="infinite-centre"></span>';
       oldWidth.replaceWith(hidden);hidden.insertAdjacentElement('afterend',slider);
       if(label){
         const textNode=[...label.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);
-        if(textNode)textNode.textContent='Balloon width / depth — infinite drag ∞ ';
+        if(textNode)textNode.textContent='Balloon width / depth — drag ruler ∞ ';
       }
 
-      let gestureStart=initial,current=initial,lastSelectedKey='',creationWidth=initial;
+      let current=initial,lastSelectedKey='',creationWidth=initial,drag=null,stripeOffset=0;
       const baselines=new Map();
       const selectedKey=()=>$('#applyBtn')&&!$('#applyBtn').disabled?($('#selectionLabel')?.textContent||'selected'):'';
       const applyThroughMain=()=>{const p=$('#pressure');if(p)p.dispatchEvent(new Event('input',{bubbles:true}))};
       const readAbsolute=()=>Math.max(.001,Number(hidden.value)||current||.42);
       const show=()=>{
         current=readAbsolute();const key=selectedKey();
+        slider.setAttribute('aria-valuenow',String(current));
         if(key){if(!baselines.has(key))baselines.set(key,current);const base=Math.max(.001,baselines.get(key));out.value=`${current.toFixed(current<1?3:2)} • ${Math.round(current/base*100)}%`}
         else out.value=`${creationWidth.toFixed(creationWidth<1?3:2)} • next`;
       };
@@ -49,24 +51,46 @@
           lastSelectedKey=key;
           if(key){current=readAbsolute();if(!baselines.has(key))baselines.set(key,current)}
           else{hidden.value=String(creationWidth);current=creationWidth}
-          gestureStart=readAbsolute();slider.value='0';show();
+          show();
         }
       };
-      const begin=()=>{syncSelection();gestureStart=readAbsolute();slider.value='0'};
-      const adjust=()=>{
-        const delta=Number(slider.value)||0;
-        const factor=Math.pow(2,delta/50); // each full throw = x4 or x0.25; release and drag again to continue infinitely
-        current=Math.max(.001,gestureStart*factor);
-        hidden.value=String(current);
+      const setValue=v=>{
+        current=Math.max(.001,v);hidden.value=String(current);
         if(selectedKey())applyThroughMain();else creationWidth=current;
         show();
       };
-      const commit=()=>{current=readAbsolute();if(!selectedKey())creationWidth=current;gestureStart=current;slider.value='0';show()};
+      const begin=e=>{
+        if(e.button!==undefined&&e.button!==0)return;
+        syncSelection();drag={id:e.pointerId,startX:e.clientX,startValue:readAbsolute(),lastX:e.clientX};
+        slider.classList.add('dragging');
+        try{slider.setPointerCapture(e.pointerId)}catch(_){}
+        e.preventDefault();
+      };
+      const move=e=>{
+        if(!drag||e.pointerId!==drag.id)return;
+        const dx=e.clientX-drag.startX;
+        // About 140px doubles/halves the current value. There is no endpoint: lift and drag again.
+        setValue(drag.startValue*Math.pow(2,dx/140));
+        slider.style.backgroundPosition=`${stripeOffset+dx}px 0`;
+        drag.lastX=e.clientX;
+        e.preventDefault();
+      };
+      const end=e=>{
+        if(!drag||e.pointerId!==drag.id)return;
+        stripeOffset+=drag.lastX-drag.startX;
+        slider.style.backgroundPosition=`${stripeOffset}px 0`;
+        drag=null;slider.classList.remove('dragging');
+        try{slider.releasePointerCapture(e.pointerId)}catch(_){}
+        e.preventDefault();
+      };
       slider.addEventListener('pointerdown',begin);
-      slider.addEventListener('input',adjust);
-      slider.addEventListener('change',commit);
-      slider.addEventListener('pointerup',commit);
-      slider.addEventListener('pointercancel',commit);
+      slider.addEventListener('pointermove',move);
+      slider.addEventListener('pointerup',end);
+      slider.addEventListener('pointercancel',end);
+      slider.addEventListener('keydown',e=>{
+        if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+        syncSelection();setValue(readAbsolute()*(e.key==='ArrowRight'?1.05:1/1.05));e.preventDefault();
+      });
 
       const selectionLabel=$('#selectionLabel');
       if(selectionLabel)new MutationObserver(()=>queueMicrotask(syncSelection)).observe(selectionLabel,{childList:true,characterData:true,subtree:true});
@@ -74,7 +98,7 @@
       if(applyBtn)new MutationObserver(()=>queueMicrotask(syncSelection)).observe(applyBtn,{attributes:true,attributeFilter:['disabled']});
 
       // Project loading can change the hidden absolute width without changing selection text.
-      $('#projectFile')?.addEventListener('change',()=>setTimeout(()=>{creationWidth=readAbsolute();gestureStart=creationWidth;slider.value='0';show()},120));
+      $('#projectFile')?.addEventListener('change',()=>setTimeout(()=>{creationWidth=readAbsolute();current=creationWidth;show()},120));
       show();
     }
 
@@ -84,11 +108,9 @@
       .nomad-export-row{display:grid;grid-template-columns:auto 82px 1fr;gap:5px;align-items:center;margin:3px 0 4px;padding:4px 5px;border:1px solid rgba(255,255,255,.14);border-radius:6px}
       .nomad-export-title{font-size:10px;font-weight:700;opacity:.82}
       .nomad-export-row select,.nomad-export-row button{min-width:0;margin:0;padding:4px 5px;font-size:10px}
-      #widthInfinite{-webkit-appearance:none;appearance:none;width:100%;height:24px;touch-action:none;cursor:ew-resize;background:repeating-linear-gradient(90deg,rgba(255,255,255,.42) 0 1px,transparent 1px 9px);border:0;border-radius:0}
-      #widthInfinite::-webkit-slider-runnable-track{height:20px;background:transparent;border:0}
-      #widthInfinite::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:3px;height:24px;margin-top:-2px;background:rgba(255,255,255,.92);border:0;border-radius:0;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
-      #widthInfinite::-moz-range-track{height:20px;background:transparent;border:0}
-      #widthInfinite::-moz-range-thumb{width:3px;height:24px;background:rgba(255,255,255,.92);border:0;border-radius:0}
+      #widthInfinite{position:relative;width:100%;height:28px;box-sizing:border-box;touch-action:none;user-select:none;-webkit-user-select:none;cursor:ew-resize;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.46) 0 1px,transparent 1px 9px);background-position:0 0;border-top:1px solid rgba(255,255,255,.08);border-bottom:1px solid rgba(255,255,255,.08);overflow:hidden}
+      #widthInfinite.dragging{background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.64) 0 1px,transparent 1px 9px)}
+      #widthInfinite .infinite-centre{position:absolute;left:50%;top:0;bottom:0;width:3px;transform:translateX(-1px);background:rgba(255,255,255,.96);box-shadow:0 0 0 1px rgba(0,0,0,.24);pointer-events:none}
     `;
     document.head.appendChild(style);
 
