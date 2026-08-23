@@ -162,5 +162,13 @@ $('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');but
 
 function resize(){const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(editPoints)refreshPointHandles()}
 function resetInitialView(){controls.target.copy(WORLD_ORIGIN);orbitPivot.copy(WORLD_ORIGIN);camera.position.set(7,7,7);camera.up.set(0,1,0);camera.lookAt(WORLD_ORIGIN)}
+window.MeshUtilzOutlinerAPI={
+  list:()=>items.map((x,index)=>({index,kind:x.settings.kind||'tube',visible:x.mesh.visible!==false,selected:x===selected})),
+  selectIndex:index=>{const x=items[index];if(!x)return false;setMode('orbit');select(x);return true},
+  toggleVisible:index=>{const x=items[index];if(!x)return false;x.mesh.visible=!x.mesh.visible;if(x===selected&&!x.mesh.visible)deselect(true);updateStatus();return x.mesh.visible},
+  duplicateIndex:index=>{const x=items[index];if(!x)return false;select(x);$('#duplicateBtn').click();return true},
+  deleteIndex:index=>{const x=items[index];if(!x)return false;select(x);$('#deleteBtn').click();return true},
+  deselect:()=>{deselect(true);return true}
+};
 addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,120));if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
 resize();resetInitialView();syncOutputs();updateSelectionUI();setMode('orbit');refreshExport();renderer.setAnimationLoop(()=>renderer.render(scene,camera));
