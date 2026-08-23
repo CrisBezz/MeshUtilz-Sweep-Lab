@@ -1,14 +1,14 @@
-// Balloon v0.9.5 core overlay.
+// Balloon v0.9.6 core overlay.
 // Keeps the validated v0.9.4 main.js untouched, patches it at module load, then executes it.
 const baseUrl=new URL('./main.js?base=094',import.meta.url);
 let src=await (await fetch(baseUrl,{cache:'no-store'})).text();
 
 function must(oldText,newText,label){
-  if(!src.includes(oldText))throw new Error(`v0.9.5 core patch failed: ${label}`);
+  if(!src.includes(oldText))throw new Error(`v0.9.6 core patch failed: ${label}`);
   src=src.replace(oldText,newText);
 }
 function mustRe(pattern,replacement,label){
-  if(!pattern.test(src))throw new Error(`v0.9.5 core patch failed: ${label}`);
+  if(!pattern.test(src))throw new Error(`v0.9.6 core patch failed: ${label}`);
   src=src.replace(pattern,replacement);
 }
 
@@ -19,8 +19,8 @@ must("'./referenceSurface.js'",JSON.stringify(new URL('./referenceSurface.js',im
 must("'./nomadBalloonExport.js?v=0862'",JSON.stringify(new URL('./nomadBalloonExport095.js?v=095',import.meta.url).href),'NOM exporter import');
 
 // Version strings now belong to the current build.
-src=src.replaceAll('v0.9.1','v0.9.5');
-src=src.replaceAll('0.9.1','0.9.5');
+src=src.replaceAll('v0.9.1','v0.9.6');
+src=src.replaceAll('0.9.1','0.9.6');
 
 // Add radius editing controls to the existing Refine selection UI.
 must(
@@ -36,7 +36,7 @@ must(
 'radius state'
 );
 
-// Radius scale is part of every raw Tube sample and therefore survives project save/load, duplicate and Undo/Redo.
+// Radius scale and visibility are part of the object snapshot, so both survive project save/load and Undo/Redo.
 must(
 `function cloneSample(s){return {p:s.p.clone(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.clone():null,surfaceOffset:s.surfaceOffset??0}}`,
 `function cloneSample(s){return {p:s.p.clone(),pressure:s.pressure,radiusScale:s.radiusScale??1,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.clone():null,surfaceOffset:s.surfaceOffset??0}}`,
@@ -44,13 +44,37 @@ must(
 );
 must(
 `function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray(),quaternion:x.mesh.quaternion.toArray(),scale:x.mesh.scale.toArray()}))}`,
-`function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,radiusScale:s.radiusScale??1,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray(),quaternion:x.mesh.quaternion.toArray(),scale:x.mesh.scale.toArray()}))}`,
-'snapshot radius'
+`function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,radiusScale:s.radiusScale??1,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray(),quaternion:x.mesh.quaternion.toArray(),scale:x.mesh.scale.toArray(),visible:x.mesh.visible!==false}))}`,
+'snapshot radius and visibility'
 );
 must(
 `{p:new THREE.Vector3(...s.p),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?new THREE.Vector3(...s.surfaceNormal):null,surfaceOffset:s.surfaceOffset??0}`,
 `{p:new THREE.Vector3(...s.p),pressure:s.pressure,radiusScale:s.radiusScale??1,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?new THREE.Vector3(...s.surfaceNormal):null,surfaceOffset:s.surfaceOffset??0}`,
 'restore radius'
+);
+must(
+`if(d.scale)x.mesh.scale.fromArray(d.scale);x.mesh.updateMatrixWorld(true)}select(items.at(-1)||null);`,
+`if(d.scale)x.mesh.scale.fromArray(d.scale);x.mesh.visible=d.visible!==false;x.mesh.updateMatrixWorld(true)}select(items.at(-1)||null);`,
+'restore visibility'
+);
+
+// Project persistence v2: exact free-trackball camera orientation, active selection and object visibility.
+must(`formatVersion:1,appVersion:'0.9.6'`,`formatVersion:2,appVersion:'0.9.6'`,'project format version');
+must(
+`camera:{position:camera.position.toArray(),up:camera.up.toArray(),orbitPivot:orbitPivot.toArray(),target:controls.target.toArray()},reference:{name:referenceName||null,embedded:false}`,
+`camera:{position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),up:camera.up.toArray(),orbitPivot:orbitPivot.toArray(),target:controls.target.toArray()},selectedIndex:items.indexOf(selected),reference:{name:referenceName||null,embedded:false}`,
+'camera quaternion and selection save'
+);
+must(
+`if(c?.up?.length===3)camera.up.fromArray(c.up);if(c?.orbitPivot?.length===3)orbitPivot.fromArray(c.orbitPivot);`,
+`if(c?.up?.length===3)camera.up.fromArray(c.up);if(c?.quaternion?.length===4)camera.quaternion.fromArray(c.quaternion);if(c?.orbitPivot?.length===3)orbitPivot.fromArray(c.orbitPivot);`,
+'camera quaternion restore'
+);
+must(`camera.lookAt(orbitPivot);const ref=data.reference?.name;`,`if(!(c?.quaternion?.length===4))camera.lookAt(orbitPivot);const ref=data.reference?.name;`,'preserve camera roll');
+must(
+`setMode('orbit');refreshExport();updateSelectionUI();updateStatus();status.textContent=`,
+`setMode('orbit');if(Number.isInteger(data.selectedIndex)&&data.selectedIndex>=0&&data.selectedIndex<items.length)select(items[data.selectedIndex]);refreshExport();updateSelectionUI();updateStatus();status.textContent=`,
+'restore selected item'
 );
 
 // Interpolate radius scale along the smoothed Tube path.
