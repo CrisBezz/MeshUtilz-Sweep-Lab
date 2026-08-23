@@ -3,8 +3,9 @@ import * as THREE from 'three';
 const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
 ready(()=>{
   const $=s=>document.querySelector(s),status=$('#status');
-  document.title='MeshUtilz Balloon v0.9.2.4';
-  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.4';
+  const build=window.BALLOON_BUILD||'0.9.2.4';
+  document.title=`MeshUtilz Balloon v${build}`;
+  const header=$('header span');if(header)header.textContent=`Balloon v${build}`;
 
   const panel=$('.reference-panel');
   if(!panel)return;
@@ -112,5 +113,4 @@ ready(()=>{
     .reference-edges-row{margin:0!important;font-size:10px;white-space:nowrap;width:100%}
   `;document.head.appendChild(style);
   applyOpacity();updateOutputs();
-  if(status)status.textContent='v0.9.2.4 • Reference controls full width';
 });
