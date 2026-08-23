@@ -3,8 +3,8 @@ import * as THREE from 'three';
 const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
 ready(()=>{
   const $=s=>document.querySelector(s),status=$('#status');
-  document.title='MeshUtilz Balloon v0.9.2.1';
-  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.1';
+  document.title='MeshUtilz Balloon v0.9.2.2';
+  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.2';
 
   const panel=$('.reference-panel');
   if(!panel)return;
@@ -16,29 +16,32 @@ ready(()=>{
   const tools=document.createElement('div');
   tools.className='reference-v092-tools';
   tools.innerHTML=`
-    <label class="reference-opacity-label">Reference opacity <input id="referenceOpacity" type="range" min="10" max="100" value="42" step="1"><output id="referenceOpacityOut">42%</output></label>
+    <div class="reference-top-pair"></div>
     <div class="reference-transform-title">Reference transforms</div>
-    <div class="reference-scrub-row"><span>X</span><div class="reference-scrub" data-axis="x"></div><output id="referenceXOut">0.00</output></div>
-    <div class="reference-scrub-row"><span>Y</span><div class="reference-scrub" data-axis="y"></div><output id="referenceYOut">0.00</output></div>
-    <div class="reference-scrub-row"><span>Z</span><div class="reference-scrub" data-axis="z"></div><output id="referenceZOut">0.00</output></div>
-    <div class="reference-scrub-row"><span>Scale</span><div class="reference-scrub reference-scale-scrub" data-axis="scale"></div><output id="referenceScaleOut">100%</output></div>
-    <div class="reference-transform-buttons"><button id="referenceCentreBtn">Centre Origin</button><button id="referenceResetBtn">Reset Transform</button><button data-ref-rotate="x">X +90°</button><button data-ref-rotate="y">Y +90°</button><button data-ref-rotate="z">Z +90°</button></div>
+    <div class="reference-xyz-row">
+      <div class="reference-axis-compact"><span>X</span><div class="reference-scrub" data-axis="x"></div><output id="referenceXOut">0.00</output></div>
+      <div class="reference-axis-compact"><span>Y</span><div class="reference-scrub" data-axis="y"></div><output id="referenceYOut">0.00</output></div>
+      <div class="reference-axis-compact"><span>Z</span><div class="reference-scrub" data-axis="z"></div><output id="referenceZOut">0.00</output></div>
+    </div>
+    <div class="reference-scale-row"><span>Scale</span><div class="reference-scrub reference-scale-scrub" data-axis="scale"></div><output id="referenceScaleOut">100%</output></div>
+    <div class="reference-transform-buttons"><button id="referenceCentreBtn">Centre</button><button id="referenceResetBtn">Reset</button><button data-ref-rotate="x">X +90°</button><button data-ref-rotate="y">Y +90°</button><button data-ref-rotate="z">Z +90°</button></div>
     <div class="reference-display-row"></div>
   `;
   panel.appendChild(tools);
 
-  const opacityLabel=tools.querySelector('.reference-opacity-label');
-  if(surfaceOffsetLabel&&opacityLabel)tools.insertBefore(surfaceOffsetLabel,opacityLabel);
+  const topPair=tools.querySelector('.reference-top-pair');
+  if(surfaceOffsetLabel)topPair.appendChild(surfaceOffsetLabel);
+  const opacityLabel=document.createElement('label');opacityLabel.className='reference-opacity-label';opacityLabel.innerHTML='Reference opacity <input id="referenceOpacity" type="range" min="10" max="100" value="42" step="1"><output id="referenceOpacityOut">42%</output>';
+  topPair.appendChild(opacityLabel);
 
   const displayRow=tools.querySelector('.reference-display-row');
   const isolateLabel=document.createElement('label');isolateLabel.innerHTML='<input id="referenceIsolate" type="checkbox"> Isolate ref';
   const edgesLabel=document.createElement('label');edgesLabel.innerHTML='<input id="referenceEdges" type="checkbox"> Shaded + edge';
-  if(showReferenceLabel)displayRow.appendChild(showReferenceLabel);
+  if(showReferenceLabel){const text=[...showReferenceLabel.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);if(text)text.textContent=' Show ref mesh';displayRow.appendChild(showReferenceLabel)}
   displayRow.appendChild(isolateLabel,edgesLabel);
   if(referenceWireLabel){const text=[...referenceWireLabel.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);if(text)text.textContent=' Wireframe';displayRow.appendChild(referenceWireLabel)}
 
   const opacity=$('#referenceOpacity'),opacityOut=$('#referenceOpacityOut'),wire=$('#referenceWire'),edges=$('#referenceEdges'),isolate=$('#referenceIsolate');
-  const overlayGroup=new THREE.Group();overlayGroup.name='Reference edge overlays';overlayGroup.raycast=()=>{};
   let overlayRoot=null;
   const hiddenSceneMeshes=new Map();
 
@@ -81,22 +84,27 @@ ready(()=>{
   $('#referenceResetBtn').onclick=()=>{const r=root();if(!r)return;r.position.set(0,0,0);r.rotation.set(0,0,0);r.scale.setScalar(1);afterTransform()};
   for(const b of tools.querySelectorAll('[data-ref-rotate]'))b.onclick=()=>{const r=root();if(!r)return;r.rotation[b.dataset.refRotate]+=Math.PI/2;afterTransform()};
 
-  const onReferenceLoaded=()=>setTimeout(()=>{applyOpacity();updateOutputs();if(wire)wire.checked=!!window.MESHUTILZ_REFERENCE_WIREFRAME;if(edges.checked)rebuildEdges();if(isolate.checked)isolateReference();status.textContent='Reference loaded • opacity / wireframe / transform controls ready'},40);
+  const onReferenceLoaded=()=>setTimeout(()=>{applyOpacity();updateOutputs();if(wire)wire.checked=!!window.MESHUTILZ_REFERENCE_WIREFRAME;if(edges.checked)rebuildEdges();if(isolate.checked)isolateReference();status.textContent='Reference loaded • compact reference controls ready'},40);
   addEventListener('meshutilz-reference-loaded',onReferenceLoaded);
   $('#referenceFile')?.addEventListener('change',()=>setTimeout(onReferenceLoaded,160));
 
   const style=document.createElement('style');style.textContent=`
-    .reference-v092-tools{display:grid;gap:4px;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.1)}
-    .reference-transform-title{font-size:10px;font-weight:700;opacity:.82;margin-top:2px}
-    .reference-scrub-row{display:grid;grid-template-columns:36px 1fr 48px;gap:5px;align-items:center;font-size:10px}
-    .reference-scrub{height:22px;touch-action:none;cursor:ew-resize;border-radius:3px;background-position:var(--offset,0px) 0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.38) 0 1px,transparent 1px 9px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
-    .reference-scrub:after{content:'';display:block;width:2px;height:22px;margin:auto;background:rgba(255,255,255,.92)}
-    .reference-scrub-row output{text-align:right;font-size:9px;opacity:.8}
-    .reference-transform-buttons{display:grid;grid-template-columns:1.25fr 1.35fr .75fr .75fr .75fr;gap:3px}
-    .reference-transform-buttons button{min-width:0;padding:4px 2px;font-size:8px}
-    .reference-display-row{display:grid;grid-template-columns:1.15fr 1fr 1.15fr .9fr;gap:3px;align-items:center;margin-top:2px}
-    .reference-display-row label{margin:0;white-space:nowrap;font-size:9px}
+    .reference-v092-tools{display:grid;gap:3px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.1)}
+    .reference-top-pair{display:grid;grid-template-columns:1fr 1fr;gap:5px;align-items:end}
+    .reference-top-pair label{margin:0;font-size:9px;min-width:0}.reference-top-pair input[type=range]{width:100%;min-width:0}.reference-top-pair output{font-size:8px}
+    .reference-transform-title{font-size:9px;font-weight:700;opacity:.82;margin-top:1px}
+    .reference-xyz-row{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+    .reference-axis-compact{display:grid;grid-template-columns:11px 1fr;grid-template-rows:18px 10px;gap:1px 3px;align-items:center;font-size:8px;min-width:0}
+    .reference-axis-compact span{grid-row:1}.reference-axis-compact .reference-scrub{grid-row:1}.reference-axis-compact output{grid-column:2;grid-row:2;text-align:center;font-size:8px;opacity:.75}
+    .reference-scale-row{display:grid;grid-template-columns:30px 1fr 42px;gap:4px;align-items:center;font-size:9px}
+    .reference-scrub{height:18px;touch-action:none;cursor:ew-resize;border-radius:3px;background-position:var(--offset,0px) 0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.38) 0 1px,transparent 1px 9px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+    .reference-scrub:after{content:'';display:block;width:2px;height:18px;margin:auto;background:rgba(255,255,255,.92)}
+    .reference-scale-row output{text-align:right;font-size:8px;opacity:.8}
+    .reference-transform-buttons{display:grid;grid-template-columns:1fr 1fr .72fr .72fr .72fr;gap:3px}
+    .reference-transform-buttons button{min-width:0;padding:3px 2px;font-size:8px}
+    .reference-display-row{display:grid;grid-template-columns:1.15fr .95fr 1.15fr .82fr;gap:3px;align-items:center;margin-top:1px}
+    .reference-display-row label{margin:0;white-space:nowrap;font-size:8px}
   `;document.head.appendChild(style);
   applyOpacity();updateOutputs();
-  if(status)status.textContent='v0.9.2.1 • Reference controls reordered';
+  if(status)status.textContent='v0.9.2.2 • Compact reference controls';
 });
