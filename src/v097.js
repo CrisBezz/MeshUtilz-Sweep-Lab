@@ -36,6 +36,27 @@
         const ok=baseDelete(index);if(ok){names.splice(index,1);save()}return ok;
       };
       api.__v097Naming=true;
+
+      // The main Edit-panel Duplicate button bypasses api.duplicateIndex. Capture the
+      // selected name before the validated core duplicates it, then name the new item.
+      const duplicateBtn=document.querySelector('#duplicateBtn');
+      let directDuplicate=null;
+      duplicateBtn?.addEventListener('click',()=>{
+        const list=api.list(),source=list.find(x=>x.selected);
+        directDuplicate=source?{name:source.name,count:list.length}:null;
+      },true);
+      duplicateBtn?.addEventListener('click',()=>{
+        if(!directDuplicate)return;
+        const pending=directDuplicate;directDuplicate=null;
+        queueMicrotask(()=>{
+          const after=baseList();
+          if(after.length<=pending.count)return;
+          while(names.length<after.length)names.push('');
+          names[after.length-1]=`${pending.name||'Balloon'} Copy`;
+          save();
+        });
+      });
+
       if(status)status.textContent='v0.9.7 • Persistent Outliner naming enabled';
       return true;
     }
@@ -56,7 +77,6 @@
         out.href=url;out.download=a.download;out.dataset.v097Names='1';document.body.appendChild(out);out.click();out.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
         if(status)status.textContent=`Project saved • ${data.objectNames.length} persistent name${data.objectNames.length===1?'':'s'}`;
       }catch(err){
-        // If augmentation ever fails, allow a normal core save on the next click rather than touching core behaviour.
         if(status)status.textContent=`Name persistence save failed: ${err.message}`;
       }
     },true);
