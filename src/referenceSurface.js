@@ -31,6 +31,8 @@ export async function loadReferenceMesh(file){
     const materials=[];
     root.traverse(o=>{if(o.isMesh){o.material=new THREE.MeshStandardMaterial({color:0x5ea6d8,roughness:.62,transparent:true,opacity:.42,side:THREE.DoubleSide,depthWrite:false,wireframe:!!window.MESHUTILZ_REFERENCE_WIREFRAME});materials.push(o.material);o.renderOrder=-1}});
     window.__meshutilzReferenceMaterials=materials;
+    window.__meshutilzReferenceRoot=root;
+    setTimeout(()=>window.dispatchEvent(new CustomEvent('meshutilz-reference-loaded',{detail:{root,name:file.name}})),0);
     return root;
   } finally {URL.revokeObjectURL(url)}
 }
