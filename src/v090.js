@@ -3,8 +3,8 @@
   ready(()=>{
     const $=s=>document.querySelector(s),aside=$('aside');
     if(!aside)return;
-    document.title='MeshUtilz Balloon v0.9.0.2';
-    const header=$('header span');if(header)header.textContent='Balloon v0.9.0.2';
+    document.title='MeshUtilz Balloon v0.9.0.3';
+    const header=$('header span');if(header)header.textContent='Balloon v0.9.0.3';
 
     const section=(title,open=true)=>{const d=document.createElement('details');d.className='ui-section';d.open=open;const s=document.createElement('summary');s.textContent=title;const body=document.createElement('div');body.className='ui-section-body';d.append(s,body);return {d,body}};
     const project=section('Project',false),reference=section('Reference',false),create=section('Create',true),shape=section('Shape',true),edit=section('Edit',true),exportSec=section('Export',true);
@@ -12,7 +12,6 @@
     const labelOf=id=>$(id)?.closest('label');
 
     move($('.project-row'),project.body);
-    move($('.reference-panel'),reference.body);
 
     move($('#orbitBtn')?.parentElement,create.body);
     move(labelOf('#creation'),create.body);
@@ -20,6 +19,16 @@
     for(const id of ['#pencilOnly','#snapSurface','#wire'])move(labelOf(id),createToggles);
     if(createToggles.children.length)create.body.appendChild(createToggles);
     move(labelOf('#plane'),create.body);
+
+    // Move the remaining reference controls only after Snap has been extracted into Create.
+    const referencePanel=$('.reference-panel');
+    if(referencePanel){
+      const referenceWireLabel=document.createElement('label');
+      referenceWireLabel.className='reference-wire-label';
+      referenceWireLabel.innerHTML='<input id="referenceWire" type="checkbox"> Reference wireframe';
+      referencePanel.appendChild(referenceWireLabel);
+      move(referencePanel,reference.body);
+    }
 
     move(labelOf('#width')||$('#widthInfinite')?.closest('label'),shape.body);
     move(labelOf('#pressure'),shape.body);
@@ -41,6 +50,22 @@
     move($('#nomadHint'),exportSec.body);
 
     aside.replaceChildren(project.d,reference.d,create.d,shape.d,edit.d,exportSec.d);
+
+    // Balloon wireframe is OFF for a fresh session by default.
+    const wire=$('#wire');
+    if(wire){wire.checked=false;wire.dispatchEvent(new Event('input',{bubbles:true}))}
+
+    const referenceWire=$('#referenceWire');
+    if(referenceWire){
+      referenceWire.checked=false;
+      window.MESHUTILZ_REFERENCE_WIREFRAME=false;
+      referenceWire.addEventListener('change',()=>{
+        const on=referenceWire.checked;
+        window.MESHUTILZ_REFERENCE_WIREFRAME=on;
+        const mats=window.__meshutilzReferenceMaterials||[];
+        for(const m of mats){m.wireframe=on;m.needsUpdate=true}
+      });
+    }
 
     function activeKind(){const text=$('#selectionLabel')?.textContent||'';if(text.includes('outline'))return'outline';if(text.includes('tube'))return'tube';return $('#creation')?.value||'outline'}
     function syncContext(){
@@ -67,7 +92,8 @@
       .tube-controls-inline{display:grid;grid-template-columns:1fr 1fr;gap:2px 6px}
       .create-toggles-inline{display:grid;grid-template-columns:1.25fr 1fr .85fr;gap:2px 6px;align-items:center}
       .create-toggles-inline label{margin:0;white-space:nowrap;font-size:10px}
+      .reference-wire-label{margin-top:4px!important}
     `;document.head.appendChild(style);
-    const status=$('#status');if(status)status.textContent='v0.9.0.2 • Snap / Wireframe moved into Create';
+    const status=$('#status');if(status)status.textContent='v0.9.0.3 • Snap fixed in Create • reference wireframe added';
   });
 })();
