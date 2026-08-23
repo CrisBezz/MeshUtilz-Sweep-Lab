@@ -3,36 +3,52 @@
   ready(()=>{
     const $=s=>document.querySelector(s),aside=$('aside');
     if(!aside)return;
-    document.title='MeshUtilz Balloon v0.9.0';
-    const header=$('header span');if(header)header.textContent='Balloon v0.9.0';
+    document.title='MeshUtilz Balloon v0.9.0.1';
+    const header=$('header span');if(header)header.textContent='Balloon v0.9.0.1';
 
     const section=(title,open=true)=>{const d=document.createElement('details');d.className='ui-section';d.open=open;const s=document.createElement('summary');s.textContent=title;const body=document.createElement('div');body.className='ui-section-body';d.append(s,body);return {d,body}};
-    const create=section('Create',true),shape=section('Shape',true),tube=section('Tube Options',true),refine=section('Refine',true),edit=section('Edit',true),reference=section('Reference',false),exportSec=section('Export',true),project=section('Project',false);
-
+    const project=section('Project',false),reference=section('Reference',false),create=section('Create',true),shape=section('Shape',true),edit=section('Edit',true),exportSec=section('Export',true);
     const move=(node,body)=>{if(node&&body)body.appendChild(node)};
     const labelOf=id=>$(id)?.closest('label');
 
-    const navRow=$('#orbitBtn')?.parentElement;
-    move(navRow,create.body);move(labelOf('#creation'),create.body);move(labelOf('#pencilOnly'),create.body);move(labelOf('#plane'),create.body);
+    move($('.project-row'),project.body);
+    move($('.reference-panel'),reference.body);
 
-    move(labelOf('#width')||$('#widthInfinite')?.closest('label'),shape.body);move(labelOf('#pressure'),shape.body);move(labelOf('#bulge'),shape.body);move(labelOf('#endSoft'),shape.body);move(labelOf('#smooth'),shape.body);move(labelOf('#sides'),shape.body);
-    const wireLabel=labelOf('#wire');move(wireLabel,shape.body);
+    move($('#orbitBtn')?.parentElement,create.body);
+    move(labelOf('#creation'),create.body);
+    move(labelOf('#pencilOnly'),create.body);
+    move(labelOf('#plane'),create.body);
 
-    for(const id of ['#taper','#loop','#caps'])move(labelOf(id),tube.body);
+    move(labelOf('#width')||$('#widthInfinite')?.closest('label'),shape.body);
+    move(labelOf('#pressure'),shape.body);
+    move(labelOf('#bulge'),shape.body);
+    move(labelOf('#endSoft'),shape.body);
+    move(labelOf('#smooth'),shape.body);
+    move(labelOf('#sides'),shape.body);
+    move(labelOf('#wire'),shape.body);
+    const tubeControls=document.createElement('div');tubeControls.className='tube-controls-inline';
+    for(const id of ['#taper','#loop','#caps'])move(labelOf(id),tubeControls);
+    if(tubeControls.children.length)shape.body.appendChild(tubeControls);
     const checks=$('.checks');if(checks&&!checks.children.length)checks.remove();
 
-    move($('#selectionPanel'),refine.body);
-    const undoRow=$('#undoBtn')?.parentElement,deleteRow=$('#deleteBtn')?.parentElement;move(undoRow,edit.body);move(deleteRow,edit.body);
+    move($('#selectionPanel'),edit.body);
+    move($('#undoBtn')?.parentElement,edit.body);
+    move($('#deleteBtn')?.parentElement,edit.body);
 
-    move($('.reference-panel'),reference.body);
-    move($('#exportBtn'),exportSec.body);move($('.nomad-export-row'),exportSec.body);move($('#nomadHint'),exportSec.body);
-    move($('.project-row'),project.body);
+    move($('#exportBtn'),exportSec.body);
+    move($('.nomad-export-row'),exportSec.body);
+    move($('#nomadHint'),exportSec.body);
 
-    const hint=$('.hint');if(hint)hint.remove();
-    aside.prepend(project.d,exportSec.d,reference.d,edit.d,refine.d,tube.d,shape.d,create.d);
+    aside.replaceChildren(project.d,reference.d,create.d,shape.d,edit.d,exportSec.d);
 
     function activeKind(){const text=$('#selectionLabel')?.textContent||'';if(text.includes('outline'))return'outline';if(text.includes('tube'))return'tube';return $('#creation')?.value||'outline'}
-    function syncContext(){const selected=!!($('#applyBtn')&&!$('#applyBtn').disabled),kind=activeKind();refine.d.hidden=!selected;tube.d.hidden=kind!=='tube';if(selected)refine.d.open=true}
+    function syncContext(){
+      const selected=!!($('#applyBtn')&&!$('#applyBtn').disabled),kind=activeKind();
+      tubeControls.hidden=kind!=='tube';
+      const refineTitle=$('.refine-title'),refineRows=[...edit.body.querySelectorAll('.refine-row')];
+      if(refineTitle)refineTitle.hidden=!selected;
+      refineRows.forEach(r=>r.hidden=!selected);
+    }
     $('#creation')?.addEventListener('change',()=>queueMicrotask(syncContext));
     const sel=$('#selectionLabel');if(sel)new MutationObserver(syncContext).observe(sel,{childList:true,characterData:true,subtree:true});
     const apply=$('#applyBtn');if(apply)new MutationObserver(syncContext).observe(apply,{attributes:true,attributeFilter:['disabled']});
@@ -45,9 +61,10 @@
       .ui-section>summary::-webkit-details-marker{display:none}
       .ui-section>summary:after{content:'+';float:right;opacity:.6}.ui-section[open]>summary:after{content:'−'}
       .ui-section-body{padding:0 6px 6px}.ui-section:not([open]) .ui-section-body{display:none}
-      .ui-section-body>.row,.ui-section-body>label,.ui-section-body>.selection-panel,.ui-section-body>.reference-panel,.ui-section-body>.nomad-export-row,.ui-section-body>.export-link{margin-top:3px;margin-bottom:3px}
-      .ui-section[hidden]{display:none!important}
+      .ui-section-body>.row,.ui-section-body>label,.ui-section-body>.selection-panel,.ui-section-body>.reference-panel,.ui-section-body>.nomad-export-row,.ui-section-body>.export-link,.tube-controls-inline{margin-top:3px;margin-bottom:3px}
+      .tube-controls-inline[hidden],.refine-title[hidden],.refine-row[hidden]{display:none!important}
+      .tube-controls-inline{display:grid;grid-template-columns:1fr 1fr;gap:2px 6px}
     `;document.head.appendChild(style);
-    const status=$('#status');if(status)status.textContent='v0.9.0 • Context UI • free trackball • 2 fingers pan/pinch/twist';
+    const status=$('#status');if(status)status.textContent='v0.9.0.1 • Project / Reference / Create / Shape / Edit / Export';
   });
 })();
