@@ -3,8 +3,8 @@ import * as THREE from 'three';
 const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
 ready(()=>{
   const $=s=>document.querySelector(s),status=$('#status');
-  document.title='MeshUtilz Balloon v0.9.2.3';
-  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.3';
+  document.title='MeshUtilz Balloon v0.9.2.4';
+  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.4';
 
   const panel=$('.reference-panel');
   if(!panel)return;
@@ -85,29 +85,32 @@ ready(()=>{
   $('#referenceResetBtn').onclick=()=>{const r=root();if(!r)return;r.position.set(0,0,0);r.rotation.set(0,0,0);r.scale.setScalar(1);afterTransform()};
   for(const b of tools.querySelectorAll('[data-ref-rotate]'))b.onclick=()=>{const r=root();if(!r)return;r.rotation[b.dataset.refRotate]+=Math.PI/2;afterTransform()};
 
-  const onReferenceLoaded=()=>setTimeout(()=>{applyOpacity();updateOutputs();if(wire)wire.checked=!!window.MESHUTILZ_REFERENCE_WIREFRAME;if(edges.checked)rebuildEdges();if(isolate.checked)isolateReference();status.textContent='Reference loaded • compact reference controls ready'},40);
+  const onReferenceLoaded=()=>setTimeout(()=>{applyOpacity();updateOutputs();if(wire)wire.checked=!!window.MESHUTILZ_REFERENCE_WIREFRAME;if(edges.checked)rebuildEdges();if(isolate.checked)isolateReference();status.textContent='Reference loaded • full-width reference controls ready'},40);
   addEventListener('meshutilz-reference-loaded',onReferenceLoaded);
   $('#referenceFile')?.addEventListener('change',()=>setTimeout(onReferenceLoaded,160));
 
   const style=document.createElement('style');style.textContent=`
-    .reference-v092-tools{display:grid;gap:3px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.1)}
-    .reference-top-pair{display:grid;grid-template-columns:1fr 1fr;gap:5px;align-items:end}
-    .reference-top-pair label{margin:0;font-size:9px;min-width:0}.reference-top-pair input[type=range]{width:100%;min-width:0}.reference-top-pair output{font-size:8px}
-    .reference-transform-title{font-size:9px;font-weight:700;opacity:.82;margin-top:1px}
-    .reference-xyz-row{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
-    .reference-axis-compact{display:grid;grid-template-columns:11px 1fr;grid-template-rows:18px 10px;gap:1px 3px;align-items:center;font-size:8px;min-width:0}
-    .reference-axis-compact span{grid-row:1}.reference-axis-compact .reference-scrub{grid-row:1}.reference-axis-compact output{grid-column:2;grid-row:2;text-align:center;font-size:8px;opacity:.75}
-    .reference-scale-row{display:grid;grid-template-columns:30px 1fr 42px;gap:4px;align-items:center;font-size:9px}
-    .reference-scrub{height:18px;touch-action:none;cursor:ew-resize;border-radius:3px;background-position:var(--offset,0px) 0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.38) 0 1px,transparent 1px 9px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
-    .reference-scrub:after{content:'';display:block;width:2px;height:18px;margin:auto;background:rgba(255,255,255,.92)}
-    .reference-scale-row output{text-align:right;font-size:8px;opacity:.8}
-    .reference-origin-row{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-    .reference-rotate-row{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
-    .reference-origin-row button,.reference-rotate-row button{min-width:0;padding:3px 2px;font-size:8px}
-    .reference-display-row{display:grid;grid-template-columns:1.12fr 1fr 1fr;gap:3px;align-items:center;margin-top:1px}
-    .reference-display-row label{margin:0;white-space:nowrap;font-size:8px}
-    .reference-edges-row{margin:0!important;font-size:8px;white-space:nowrap}
+    .reference-panel{display:flex!important;flex-direction:column!important;align-items:stretch!important}
+    .reference-panel>.reference-v092-tools{width:100%!important;min-width:0!important}
+    .reference-v092-tools{display:grid;gap:5px;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.1);width:100%}
+    .reference-v092-tools>*{min-width:0}
+    .reference-top-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px;align-items:end;width:100%}
+    .reference-top-pair label{margin:0;font-size:10px;min-width:0;width:100%}.reference-top-pair input[type=range]{width:100%;min-width:0}.reference-top-pair output{font-size:9px}
+    .reference-transform-title{font-size:10px;font-weight:700;opacity:.82;margin-top:2px}
+    .reference-xyz-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
+    .reference-axis-compact{display:grid;grid-template-columns:15px minmax(0,1fr);grid-template-rows:24px 13px;gap:2px 4px;align-items:center;font-size:10px;min-width:0;width:100%}
+    .reference-axis-compact span{grid-row:1}.reference-axis-compact .reference-scrub{grid-row:1;width:100%;min-width:0}.reference-axis-compact output{grid-column:2;grid-row:2;text-align:center;font-size:9px;opacity:.78}
+    .reference-scale-row{display:grid;grid-template-columns:38px minmax(0,1fr) 48px;gap:6px;align-items:center;font-size:10px;width:100%}
+    .reference-scrub{height:24px;touch-action:none;cursor:ew-resize;border-radius:4px;background-position:var(--offset,0px) 0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.38) 0 1px,transparent 1px 9px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+    .reference-scrub:after{content:'';display:block;width:2px;height:24px;margin:auto;background:rgba(255,255,255,.92)}
+    .reference-scale-row output{text-align:right;font-size:9px;opacity:.8}
+    .reference-origin-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;width:100%}
+    .reference-rotate-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;width:100%}
+    .reference-origin-row button,.reference-rotate-row button{min-width:0;width:100%;padding:5px 4px;font-size:10px;min-height:29px}
+    .reference-display-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;align-items:center;margin-top:2px;width:100%}
+    .reference-display-row label{margin:0;white-space:normal;font-size:10px;line-height:1.1;min-width:0}
+    .reference-edges-row{margin:0!important;font-size:10px;white-space:nowrap;width:100%}
   `;document.head.appendChild(style);
   applyOpacity();updateOutputs();
-  if(status)status.textContent='v0.9.2.3 • Compact reference control rows';
+  if(status)status.textContent='v0.9.2.4 • Reference controls full width';
 });
