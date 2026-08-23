@@ -1,8 +1,8 @@
 (()=>{
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
-    const $=s=>document.querySelector(s),status=$('#status');
-    const build=window.BALLOON_BUILD||'0.9.9.2';
+    const $=s=>document.querySelector(s),status=$('#status'),aside=$('aside');
+    const build=window.BALLOON_BUILD||'0.9.9.3';
     const storageKey='meshutilz-ui-sections-v099';
 
     document.title=`MeshUtilz Balloon v${build}`;
@@ -11,7 +11,8 @@
     let saved={};
     try{saved=JSON.parse(localStorage.getItem(storageKey)||'{}')||{}}catch{}
     const sectionTitle=d=>d.querySelector(':scope > summary')?.textContent?.trim()||'';
-    const sectionBody=title=>[...document.querySelectorAll('aside > details.ui-section')].find(d=>sectionTitle(d)===title)?.querySelector(':scope > .ui-section-body')||null;
+    const findSection=title=>[...document.querySelectorAll('aside > details.ui-section')].find(d=>sectionTitle(d)===title)||null;
+    const sectionBody=title=>findSection(title)?.querySelector(':scope > .ui-section-body')||null;
     const bindSections=()=>{
       for(const d of document.querySelectorAll('aside > details.ui-section')){
         const title=sectionTitle(d);if(!title||d.dataset.v099Bound==='1')continue;
@@ -21,13 +22,24 @@
       }
     };
 
-    // The core creates Project controls after the sidebar section module can run on iPad.
-    // Always move the live row into Project once it exists instead of leaving an empty shell.
+    // Project must always exist. Some iPad load orders can run the sidebar rebuild before
+    // the core's project row exists, and in rare cases the Project section itself disappears.
     const ensureProject=()=>{
-      const body=sectionBody('Project'),row=document.querySelector('.project-row');
-      if(!body||!row)return false;
-      if(row.parentElement!==body)body.appendChild(row);
-      return !!($('#saveProjectBtn')&&$('#loadProjectBtn')&&$('#newProjectBtn'));
+      if(!aside)return false;
+      let section=findSection('Project');
+      if(!section){
+        section=document.createElement('details');section.className='ui-section';section.open=true;
+        const summary=document.createElement('summary');summary.textContent='Project';
+        const body=document.createElement('div');body.className='ui-section-body';
+        section.append(summary,body);
+        const first=aside.querySelector(':scope > details.ui-section');
+        if(first)aside.insertBefore(section,first);else aside.prepend(section);
+      }
+      const body=section.querySelector(':scope > .ui-section-body');
+      const row=document.querySelector('.project-row');
+      if(row&&body&&row.parentElement!==body)body.appendChild(row);
+      bindSections();
+      return !!(body&&row&&$('#saveProjectBtn')&&$('#loadProjectBtn')&&$('#newProjectBtn'));
     };
 
     // Snap to Surface is a creation behaviour, not a reference-only behaviour.
@@ -51,7 +63,7 @@
       if(body&&panel&&panel.parentElement!==body)body.appendChild(panel);
       if(panel&&!panel.querySelector('.reference-v092-tools')){
         if(!document.querySelector('script[data-v099-ref-recovery]')){
-          const s=document.createElement('script');s.type='module';s.dataset.v099RefRecovery='1';s.src=`./src/v092.js?v=099-recover-${Date.now()}`;document.body.appendChild(s);
+          const s=document.createElement('script');s.type='module';s.dataset.v099RefRecovery='1';s.src=`./src/v092.js?v=0993-recover-${Date.now()}`;document.body.appendChild(s);
         }
       }
       return !!(body&&panel);
@@ -77,7 +89,7 @@
     };
 
     let tries=0;
-    const timer=setInterval(()=>{if(checkReady()||++tries>50)clearInterval(timer)},100);
+    const timer=setInterval(()=>{if(checkReady()||++tries>80)clearInterval(timer)},100);
     checkReady();
   });
 })();
