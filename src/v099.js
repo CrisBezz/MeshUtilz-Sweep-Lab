@@ -2,16 +2,16 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status');
-    const build=window.BALLOON_BUILD||'0.9.9.1';
+    const build=window.BALLOON_BUILD||'0.9.9.2';
     const storageKey='meshutilz-ui-sections-v099';
 
     document.title=`MeshUtilz Balloon v${build}`;
     const header=$('header span');if(header)header.textContent=`Balloon v${build}`;
 
-    // Remember which sidebar sections the user keeps open without touching tool state.
     let saved={};
     try{saved=JSON.parse(localStorage.getItem(storageKey)||'{}')||{}}catch{}
     const sectionTitle=d=>d.querySelector(':scope > summary')?.textContent?.trim()||'';
+    const sectionBody=title=>[...document.querySelectorAll('aside > details.ui-section')].find(d=>sectionTitle(d)===title)?.querySelector(':scope > .ui-section-body')||null;
     const bindSections=()=>{
       for(const d of document.querySelectorAll('aside > details.ui-section')){
         const title=sectionTitle(d);if(!title||d.dataset.v099Bound==='1')continue;
@@ -21,12 +21,18 @@
       }
     };
 
+    // The core creates Project controls after the sidebar section module can run on iPad.
+    // Always move the live row into Project once it exists instead of leaving an empty shell.
+    const ensureProject=()=>{
+      const body=sectionBody('Project'),row=document.querySelector('.project-row');
+      if(!body||!row)return false;
+      if(row.parentElement!==body)body.appendChild(row);
+      return !!($('#saveProjectBtn')&&$('#loadProjectBtn')&&$('#newProjectBtn'));
+    };
+
     // Snap to Surface is a creation behaviour, not a reference-only behaviour.
-    // Keep it in Create even when no reference mesh exists; snapping can also use created balloons.
     const ensureSnapPlacement=()=>{
-      const sections=[...document.querySelectorAll('aside > details.ui-section')];
-      const create=sections.find(d=>sectionTitle(d)==='Create');
-      const body=create?.querySelector(':scope > .ui-section-body');
+      const body=sectionBody('Create');
       const snap=$('#snapSurface'),label=snap?.closest('label');
       if(!body||!label)return false;
       let toggles=body.querySelector('.create-toggles-inline');
@@ -39,15 +45,11 @@
       return true;
     };
 
-    // Final load-order guard. It only repairs UI placement; modelling, geometry and gestures stay untouched.
     const ensureReference=()=>{
-      const sections=[...document.querySelectorAll('aside > details.ui-section')];
-      const reference=sections.find(d=>sectionTitle(d)==='Reference');
-      const body=reference?.querySelector(':scope > .ui-section-body');
+      const body=sectionBody('Reference');
       const panel=document.querySelector('.reference-panel');
       if(body&&panel&&panel.parentElement!==body)body.appendChild(panel);
       if(panel&&!panel.querySelector('.reference-v092-tools')){
-        // Re-run the already validated reference UI module only when its tools are genuinely absent.
         if(!document.querySelector('script[data-v099-ref-recovery]')){
           const s=document.createElement('script');s.type='module';s.dataset.v099RefRecovery='1';s.src=`./src/v092.js?v=099-recover-${Date.now()}`;document.body.appendChild(s);
         }
@@ -57,13 +59,13 @@
 
     const checkReady=()=>{
       bindSections();
+      const projectOK=ensureProject();
       const referenceOK=ensureReference();
       const snapOK=ensureSnapPlacement();
       const required=[
         ['viewport canvas',!!document.querySelector('#viewport canvas')],
         ['Draw',!!$('#drawBtn')],['Orbit',!!$('#orbitBtn')],['Creation',!!$('#creation')],
-        ['Project',!!$('#saveProjectBtn')&&!!$('#loadProjectBtn')],
-        ['Outliner',!!window.MeshUtilzOutlinerAPI],['Reference',referenceOK],['Snap',snapOK]
+        ['Project',projectOK],['Outliner',!!window.MeshUtilzOutlinerAPI],['Reference',referenceOK],['Snap',snapOK]
       ];
       const missing=required.filter(x=>!x[1]).map(x=>x[0]);
       if(!missing.length){
