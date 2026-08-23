@@ -28,7 +28,9 @@ export async function loadReferenceMesh(file){
     else if(lower.endsWith('.glb')||lower.endsWith('.gltf'))root=(await new GLTFLoader().loadAsync(url)).scene;
     else throw new Error('Choose an OBJ, GLB, or GLTF file.');
     root.name=`Reference: ${file.name}`;
-    root.traverse(o=>{if(o.isMesh){o.material=new THREE.MeshStandardMaterial({color:0x5ea6d8,roughness:.62,transparent:true,opacity:.42,side:THREE.DoubleSide,depthWrite:false});o.renderOrder=-1}});
+    const materials=[];
+    root.traverse(o=>{if(o.isMesh){o.material=new THREE.MeshStandardMaterial({color:0x5ea6d8,roughness:.62,transparent:true,opacity:.42,side:THREE.DoubleSide,depthWrite:false,wireframe:!!window.MESHUTILZ_REFERENCE_WIREFRAME});materials.push(o.material);o.renderOrder=-1}});
+    window.__meshutilzReferenceMaterials=materials;
     return root;
   } finally {URL.revokeObjectURL(url)}
 }
