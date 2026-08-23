@@ -3,8 +3,8 @@
   ready(()=>{
     const $=s=>document.querySelector(s),aside=$('aside');
     if(!aside)return;
-    document.title='MeshUtilz Balloon v0.9.0.1';
-    const header=$('header span');if(header)header.textContent='Balloon v0.9.0.1';
+    document.title='MeshUtilz Balloon v0.9.0.2';
+    const header=$('header span');if(header)header.textContent='Balloon v0.9.0.2';
 
     const section=(title,open=true)=>{const d=document.createElement('details');d.className='ui-section';d.open=open;const s=document.createElement('summary');s.textContent=title;const body=document.createElement('div');body.className='ui-section-body';d.append(s,body);return {d,body}};
     const project=section('Project',false),reference=section('Reference',false),create=section('Create',true),shape=section('Shape',true),edit=section('Edit',true),exportSec=section('Export',true);
@@ -16,7 +16,9 @@
 
     move($('#orbitBtn')?.parentElement,create.body);
     move(labelOf('#creation'),create.body);
-    move(labelOf('#pencilOnly'),create.body);
+    const createToggles=document.createElement('div');createToggles.className='create-toggles-inline';
+    for(const id of ['#pencilOnly','#snapSurface','#wire'])move(labelOf(id),createToggles);
+    if(createToggles.children.length)create.body.appendChild(createToggles);
     move(labelOf('#plane'),create.body);
 
     move(labelOf('#width')||$('#widthInfinite')?.closest('label'),shape.body);
@@ -25,7 +27,6 @@
     move(labelOf('#endSoft'),shape.body);
     move(labelOf('#smooth'),shape.body);
     move(labelOf('#sides'),shape.body);
-    move(labelOf('#wire'),shape.body);
     const tubeControls=document.createElement('div');tubeControls.className='tube-controls-inline';
     for(const id of ['#taper','#loop','#caps'])move(labelOf(id),tubeControls);
     if(tubeControls.children.length)shape.body.appendChild(tubeControls);
@@ -61,10 +62,12 @@
       .ui-section>summary::-webkit-details-marker{display:none}
       .ui-section>summary:after{content:'+';float:right;opacity:.6}.ui-section[open]>summary:after{content:'−'}
       .ui-section-body{padding:0 6px 6px}.ui-section:not([open]) .ui-section-body{display:none}
-      .ui-section-body>.row,.ui-section-body>label,.ui-section-body>.selection-panel,.ui-section-body>.reference-panel,.ui-section-body>.nomad-export-row,.ui-section-body>.export-link,.tube-controls-inline{margin-top:3px;margin-bottom:3px}
+      .ui-section-body>.row,.ui-section-body>label,.ui-section-body>.selection-panel,.ui-section-body>.reference-panel,.ui-section-body>.nomad-export-row,.ui-section-body>.export-link,.tube-controls-inline,.create-toggles-inline{margin-top:3px;margin-bottom:3px}
       .tube-controls-inline[hidden],.refine-title[hidden],.refine-row[hidden]{display:none!important}
       .tube-controls-inline{display:grid;grid-template-columns:1fr 1fr;gap:2px 6px}
+      .create-toggles-inline{display:grid;grid-template-columns:1.25fr 1fr .85fr;gap:2px 6px;align-items:center}
+      .create-toggles-inline label{margin:0;white-space:nowrap;font-size:10px}
     `;document.head.appendChild(style);
-    const status=$('#status');if(status)status.textContent='v0.9.0.1 • Project / Reference / Create / Shape / Edit / Export';
+    const status=$('#status');if(status)status.textContent='v0.9.0.2 • Snap / Wireframe moved into Create';
   });
 })();
