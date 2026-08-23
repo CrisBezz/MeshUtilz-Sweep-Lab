@@ -2,7 +2,7 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status');
-    const build=window.BALLOON_BUILD||'0.9.8';
+    const build=window.BALLOON_BUILD||'0.9.8.1';
 
     // Keep named Balloons named in OBJ without touching the validated geometry/export core.
     // The core still builds the OBJ; this layer only rewrites each `o ...` header before download.
@@ -22,7 +22,7 @@
           return `o ${clean}`;
         });
         const url=URL.createObjectURL(new Blob([obj],{type:'text/plain;charset=utf-8'})),out=document.createElement('a');
-        out.href=url;out.download='MeshUtilz-Balloon-v0.9.8.obj';out.dataset.v098Obj='1';document.body.appendChild(out);out.click();out.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+        out.href=url;out.download='MeshUtilz-Balloon-v0.9.8.1.obj';out.dataset.v098Obj='1';document.body.appendChild(out);out.click();out.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
         if(status)status.textContent=`OBJ ready • ${names.length} named balloon${names.length===1?'':'s'}`;
       }catch(err){
         if(status)status.textContent=`Named OBJ export failed: ${err.message}`;
@@ -61,8 +61,34 @@
       setTimeout(()=>document.querySelector(`.outliner-row[data-index="${s.index}"]`)?.scrollIntoView?.({block:'nearest'}),0);
     },250);
 
+    // Reference UI recovery. The core/UI layers can finish in a different order on iPad.
+    // If Reference was created before the core .reference-panel existed, recover it without touching modelling code.
+    let referenceTries=0;
+    const recoverReference=async()=>{
+      const aside=$('aside'),panel=$('.reference-panel');
+      const refSection=[...(aside?.querySelectorAll(':scope > .ui-section')||[])].find(s=>s.querySelector(':scope > summary')?.textContent.trim()==='Reference');
+      const body=refSection?.querySelector(':scope > .ui-section-body');
+      if(!panel||!body){
+        if(referenceTries++<60)setTimeout(recoverReference,100);
+        return;
+      }
+      if(panel.parentElement!==body)body.appendChild(panel);
+      if(!panel.querySelector('#referenceWire')){
+        const label=document.createElement('label');label.className='reference-wire-label';label.innerHTML='<input id="referenceWire" type="checkbox"> Reference wireframe';panel.appendChild(label);
+        const wire=label.querySelector('#referenceWire');wire.addEventListener('change',()=>{
+          window.MESHUTILZ_REFERENCE_WIREFRAME=wire.checked;
+          for(const m of window.__meshutilzReferenceMaterials||[]){m.wireframe=wire.checked;m.needsUpdate=true}
+        });
+      }
+      if(!panel.querySelector('.reference-v092-tools')){
+        try{await import(`./v092.js?recover=0981-${Date.now()}`)}catch(err){if(status)status.textContent=`Reference controls recovery failed: ${err.message}`}
+      }
+      if(refSection&&panel.children.length&&status)status.textContent=`v${build} • Reference controls restored`;
+    };
+    setTimeout(recoverReference,0);
+
     document.title=`MeshUtilz Balloon v${build}`;
     const h=$('header span');if(h)h.textContent=`Balloon v${build}`;
-    if(status)status.textContent=`v${build} • Named OBJ export + keyboard polish`;
+    if(status)status.textContent=`v${build} • Reference UI recovery + polish`;
   });
 })();
