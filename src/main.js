@@ -18,8 +18,9 @@ addWorldAxis(new THREE.Vector3(0,-100,0),new THREE.Vector3(0,100,0),0x34c759);
 addWorldAxis(new THREE.Vector3(0,0,-100),new THREE.Vector3(0,0,100),0x0a84ff);
 
 const $=s=>document.querySelector(s),status=$('#status'),ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
+$('#orbitBtn').parentElement.insertAdjacentHTML('afterend','<div class="row project-row"><button id="saveProjectBtn">Save Project</button><button id="loadProjectBtn">Load Project</button><button id="newProjectBtn">New</button><input id="projectFile" type="file" accept=".meshutilz,.json,application/json" hidden></div>');
 $('#plane').parentElement.insertAdjacentHTML('afterend','<section class="reference-panel"><strong>Reference Surface</strong><input id="referenceFile" type="file" accept=".obj,.glb,.gltf" hidden><button id="loadReferenceBtn">Load Reference Mesh</button><span id="referenceStatus">No reference mesh loaded</span><label><input id="snapSurface" type="checkbox"> Snap to Surface</label><label><input id="showReference" type="checkbox" checked> Show Reference Mesh</label><label>Surface offset <input id="surfaceOffset" type="range" min="-0.50" max="0.50" value="0.02" step="0.01"><output id="surfaceOffsetOut">0.02</output></label></section>');
-document.title='MeshUtilz Balloon v0.8.6.2';document.querySelector('header span').textContent='Balloon v0.8.6.2';
+document.title='MeshUtilz Balloon v0.8.7';document.querySelector('header span').textContent='Balloon v0.8.7';
 $('#exportBtn').insertAdjacentHTML('afterend','<label>Nomad Detail<select id="nomadDetail"><option value="low">Low — easiest editing</option><option value="medium">Medium</option><option value="high" selected>High — closest shape</option></select></label><button id="exportLiveNomBtn" class="export-live-nom">Save Live Nomad Balloon — NOM</button><p id="nomadHint" class="nomad-hint">Tube Balloons export as live Nomad Tubes; Outline Balloons export as fixed mesh objects. Nomad Detail simplifies only exported Tube control points.</p>');
 $('#selectionPanel').insertAdjacentHTML('beforeend','<div class="refine-title">Refine selection</div><div class="row refine-row"><button id="editPointsBtn" disabled>Edit Points</button><button id="deletePointBtn" disabled>Delete Point</button><button id="reducePointsBtn" disabled>Reduce Points</button></div><div class="row refine-row"><button id="gizmoBtn" disabled>Universal Gizmo</button></div>');
 let items=[],current=null,drawing=false,mode='orbit',selected=null,undo=[],redo=[],exportUrl=null,orbitTap=null,activeDrawPlane=null;
@@ -27,7 +28,7 @@ let orbitPivot=WORLD_ORIGIN.clone(),fingerDrawId=null,fingerDrawLast=null,finger
 const touchPointers=new Map();let pinchState=null,tapGesture=null,selectionOutline=null;
 const material=()=>new THREE.MeshStandardMaterial({color:0xd7dde7,roughness:.48,metalness:.03,side:THREE.DoubleSide,wireframe:$('#wire').checked});
 const referenceGroup=new THREE.Group(),surfaceTargets=new SurfaceTargetRegistry();scene.add(referenceGroup);
-let referenceRoot=null;
+let referenceRoot=null,referenceName='';
 const selectionOutlineMaterial=new THREE.MeshBasicMaterial({color:0xff2020,side:THREE.BackSide,depthWrite:false});
 const transformProxy=new THREE.Object3D();scene.add(transformProxy);
 function makeTransform(kind,size){const c=new TransformControls(camera,renderer.domElement);c.setMode(kind);c.setSpace('world');c.setSize(size);const helper=c.getHelper();scene.add(helper);helper.visible=false;return {control:c,helper,kind}}
@@ -47,209 +48,67 @@ function pointFromEvent(e){eventRay(e);const p=new THREE.Vector3(),drawPlane=act
 function eventPressure(e){if(e.pointerType==='pen'&&Number.isFinite(e.pressure)&&e.pressure>0)return THREE.MathUtils.clamp(e.pressure,0.05,1);return 1}
 
 function clearSelectionOutline(){if(selectionOutline?.parent)selectionOutline.parent.remove(selectionOutline);selectionOutline=null}
-function showSelectionOutline(x){
-  clearSelectionOutline();if(!x)return;
-  const g=x.mesh.geometry;if(!g.boundingSphere)g.computeBoundingSphere();
-  const s=1.025,c=g.boundingSphere?.center||new THREE.Vector3();
-  selectionOutline=new THREE.Mesh(g,selectionOutlineMaterial);
-  selectionOutline.scale.setScalar(s);selectionOutline.position.copy(c).multiplyScalar(1-s);selectionOutline.renderOrder=3;selectionOutline.raycast=()=>{};
-  x.mesh.add(selectionOutline);
-}
+function showSelectionOutline(x){clearSelectionOutline();if(!x)return;const g=x.mesh.geometry;if(!g.boundingSphere)g.computeBoundingSphere();const s=1.025,c=g.boundingSphere?.center||new THREE.Vector3();selectionOutline=new THREE.Mesh(g,selectionOutlineMaterial);selectionOutline.scale.setScalar(s);selectionOutline.position.copy(c).multiplyScalar(1-s);selectionOutline.renderOrder=3;selectionOutline.raycast=()=>{};x.mesh.add(selectionOutline)}
 function refreshSelectionOutline(x){if(selected===x)showSelectionOutline(x)}
 
 function cloneSample(s){return {p:s.p.clone(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.clone():null,surfaceOffset:s.surfaceOffset??0}}
-function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray()}))}
+function snapshot(){return items.map(x=>({samples:x.samples.map(s=>({p:s.p.toArray(),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?s.surfaceNormal.toArray():null,surfaceOffset:s.surfaceOffset??0})),settings:{...x.settings},position:x.mesh.position.toArray(),quaternion:x.mesh.quaternion.toArray(),scale:x.mesh.scale.toArray()}))}
 function checkpoint(){undo.push(snapshot());if(undo.length>30)undo.shift();redo=[]}
 function detachTransforms(){for(const t of transformSet){t.control.detach();t.helper.visible=false;t.control.enabled=true}activeTransform=null}
 function setTransformVisibility(on){for(const t of transformSet)t.helper.visible=!!on}
 function disposeItem(x){if(selectionOutline?.parent===x.mesh)clearSelectionOutline();if(selected===x){detachTransforms();clearPointHandles()}surfaceTargets.unregister(x.mesh);scene.remove(x.mesh);x.mesh.geometry.dispose();x.mesh.material.dispose()}
-function restore(snap){clearSelectionOutline();items.forEach(disposeItem);items=[];selected=null;for(const d of snap){const x=addItem(d.samples.map(s=>({p:new THREE.Vector3(...s.p),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?new THREE.Vector3(...s.surfaceNormal):null,surfaceOffset:s.surfaceOffset??0})),d.settings,false);x.mesh.position.fromArray(d.position||[0,0,0])}select(items.at(-1)||null);refreshExport();updateStatus()}
+function restore(snap){clearSelectionOutline();items.forEach(disposeItem);items=[];selected=null;for(const d of snap){const x=addItem(d.samples.map(s=>({p:new THREE.Vector3(...s.p),pressure:s.pressure,snapped:!!s.snapped,surfaceNormal:s.surfaceNormal?new THREE.Vector3(...s.surfaceNormal):null,surfaceOffset:s.surfaceOffset??0})),d.settings,false);x.mesh.position.fromArray(d.position||[0,0,0]);if(d.quaternion)x.mesh.quaternion.fromArray(d.quaternion);if(d.scale)x.mesh.scale.fromArray(d.scale);x.mesh.updateMatrixWorld(true)}select(items.at(-1)||null);refreshExport();updateStatus()}
 function doUndo(){if(!undo.length){status.textContent='Nothing to undo';return}redo.push(snapshot());restore(undo.pop());status.textContent='Undo'}
 function doRedo(){if(!redo.length){status.textContent='Nothing to redo';return}undo.push(snapshot());restore(redo.pop());status.textContent='Redo'}
 
-function resample(samples,settings){
-  if(samples.length<2)return{path:[],radii:[]};
-  const raw=samples.map(s=>s.p),loop=settings.loop&&raw.length>2;
-  const curve=new THREE.CatmullRomCurve3(raw,loop,'centripetal',.5);
-  const count=Math.max(3,Math.min(420,raw.length*settings.smooth));
-  const path=curve.getPoints(count);
-  if(loop&&path.length>2&&path[0].distanceToSquared(path.at(-1))<1e-10)path.pop();
-  const r=[],base=settings.width/2;
-  for(let i=0;i<path.length;i++){
-    const u=loop?i/path.length:i/(path.length-1);
-    let pressure;
-    if(loop){
-      const f=u*samples.length,a=Math.floor(f)%samples.length,b=(a+1)%samples.length,q=f-Math.floor(f);
-      pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q);
-    }else{
-      const f=u*(samples.length-1),a=Math.floor(f),b=Math.min(samples.length-1,a+1),q=f-a;
-      pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q);
-    }
-    const easedPressure=THREE.MathUtils.smoothstep(pressure,0.05,1);
-    const pressureFactor=THREE.MathUtils.lerp(1,0.28+0.92*easedPressure,settings.pressure);
-    const bodyShape=loop?0:Math.sin(Math.PI*u);
-    const inflation=1+settings.bulge*Math.pow(Math.max(0,bodyShape),0.7);
-    let radius=base*pressureFactor*inflation;
-    if(!loop&&settings.caps&&settings.taper){
-      const edge=Math.min(u,1-u);
-      const span=THREE.MathUtils.lerp(0.035,0.2,settings.endSoft);
-      const tip=THREE.MathUtils.smoothstep(edge,0,span);
-      const minEnd=THREE.MathUtils.lerp(.86,.42,settings.endSoft);
-      radius*=THREE.MathUtils.lerp(minEnd,1,tip);
-    }
-    r.push(radius);
-  }
-  return{path,radii:smoothRadii(r,3)};
-}
-function rebuild(x){
-  x.mesh.geometry.dispose();
-  if((x.settings.kind||'tube')==='outline'){
-    x.mesh.geometry=buildOutlineBalloon(x.samples.map(s=>s.p),{
-      depth:x.settings.width*(.7+x.settings.bulge*1.5),
-      roundness:THREE.MathUtils.clamp(.25+x.settings.bulge,0,1),
-      edgeRoundness:THREE.MathUtils.clamp((x.settings.sides-8)/20,0,1),
-      smooth:x.settings.smooth
-    });
-  }else{
-    const {path,radii}=resample(x.samples,x.settings);
-    x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,caps:x.settings.caps!==false,loop:x.settings.loop===true});
-  }
-  x.mesh.material.wireframe=$('#wire').checked;refreshSelectionOutline(x);
-}
+function projectUI(){return{creation:$('#creation').value,plane:$('#plane').value,wire:$('#wire').checked,pencilOnly:$('#pencilOnly').checked,nomadDetail:$('#nomadDetail').value,snapSurface:$('#snapSurface').checked,showReference:$('#showReference').checked,surfaceOffset:+$('#surfaceOffset').value,controls:uiSettings()}}
+function projectData(){return{format:'MeshUtilz Balloon Project',formatVersion:1,appVersion:'0.8.7',savedAt:new Date().toISOString(),items:snapshot(),ui:projectUI(),camera:{position:camera.position.toArray(),up:camera.up.toArray(),orbitPivot:orbitPivot.toArray(),target:controls.target.toArray()},reference:{name:referenceName||null,embedded:false}}}
+function downloadBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+function saveProject(){const data=projectData();downloadBlob(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),'MeshUtilz-Balloon-Project-v0.8.7.meshutilz');status.textContent=`Project saved • ${items.length} balloon${items.length===1?'':'s'}${referenceName?' • reference filename remembered':''}`}
+function clearReference(){if(referenceRoot){surfaceTargets.unregister(referenceRoot);referenceGroup.remove(referenceRoot);referenceRoot=null}referenceName='';$('#referenceStatus').textContent='No reference mesh loaded'}
+function applyProjectUI(ui={}){if(ui.creation)$('#creation').value=ui.creation;if(ui.plane)$('#plane').value=ui.plane;$('#wire').checked=!!ui.wire;$('#pencilOnly').checked=!!ui.pencilOnly;if(ui.nomadDetail)$('#nomadDetail').value=ui.nomadDetail;$('#snapSurface').checked=!!ui.snapSurface;$('#showReference').checked=ui.showReference!==false;if(Number.isFinite(ui.surfaceOffset))$('#surfaceOffset').value=ui.surfaceOffset;const c=ui.controls||{};for(const id of ['width','pressure','bulge','endSoft','smooth','sides'])if(c[id]!==undefined)$('#'+id).value=c[id];for(const id of ['taper','loop','caps'])if(c[id]!==undefined)$('#'+id).checked=!!c[id];$('#surfaceOffsetOut').value=(+$('#surfaceOffset').value).toFixed(2);syncOutputs();items.forEach(x=>{x.mesh.material.wireframe=$('#wire').checked})}
+function loadProjectData(data){if(!data||data.format!=='MeshUtilz Balloon Project'||!Array.isArray(data.items))throw Error('Not a MeshUtilz Balloon project file');clearReference();restore(data.items);deselect(true);applyProjectUI(data.ui||{});undo=[];redo=[];const c=data.camera;if(c?.position?.length===3)camera.position.fromArray(c.position);if(c?.up?.length===3)camera.up.fromArray(c.up);if(c?.orbitPivot?.length===3)orbitPivot.fromArray(c.orbitPivot);else setOrbitPivot(null);if(c?.target?.length===3)controls.target.fromArray(c.target);camera.lookAt(orbitPivot);const ref=data.reference?.name;if(ref){referenceName=ref;$('#referenceStatus').textContent=`Reference not embedded — reload ${ref}`}setMode('orbit');refreshExport();updateSelectionUI();updateStatus();status.textContent=`Project loaded • ${items.length} balloon${items.length===1?'':'s'}${ref?' • reload reference mesh':''}`}
+async function loadProjectFile(file){const text=await file.text(),data=JSON.parse(text);loadProjectData(data)}
+function newProject(){if(items.length&&!confirm('Start a new MeshUtilz project? Current unsaved balloons will be cleared.'))return;clearReference();restore([]);undo=[];redo=[];activeDrawPlane=null;drawing=false;current=null;setMode('orbit');resetInitialView();status.textContent='New project'}
+
+function resample(samples,settings){if(samples.length<2)return{path:[],radii:[]};const raw=samples.map(s=>s.p),loop=settings.loop&&raw.length>2;const curve=new THREE.CatmullRomCurve3(raw,loop,'centripetal',.5);const count=Math.max(3,Math.min(420,raw.length*settings.smooth));const path=curve.getPoints(count);if(loop&&path.length>2&&path[0].distanceToSquared(path.at(-1))<1e-10)path.pop();const r=[],base=settings.width/2;for(let i=0;i<path.length;i++){const u=loop?i/path.length:i/(path.length-1);let pressure;if(loop){const f=u*samples.length,a=Math.floor(f)%samples.length,b=(a+1)%samples.length,q=f-Math.floor(f);pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q)}else{const f=u*(samples.length-1),a=Math.floor(f),b=Math.min(samples.length-1,a+1),q=f-a;pressure=THREE.MathUtils.lerp(samples[a].pressure,samples[b].pressure,q)}const easedPressure=THREE.MathUtils.smoothstep(pressure,0.05,1);const pressureFactor=THREE.MathUtils.lerp(1,0.28+0.92*easedPressure,settings.pressure);const bodyShape=loop?0:Math.sin(Math.PI*u);const inflation=1+settings.bulge*Math.pow(Math.max(0,bodyShape),0.7);let radius=base*pressureFactor*inflation;if(!loop&&settings.caps&&settings.taper){const edge=Math.min(u,1-u),span=THREE.MathUtils.lerp(0.035,0.2,settings.endSoft),tip=THREE.MathUtils.smoothstep(edge,0,span),minEnd=THREE.MathUtils.lerp(.86,.42,settings.endSoft);radius*=THREE.MathUtils.lerp(minEnd,1,tip)}r.push(radius)}return{path,radii:smoothRadii(r,3)}}
+function rebuild(x){x.mesh.geometry.dispose();if((x.settings.kind||'tube')==='outline'){x.mesh.geometry=buildOutlineBalloon(x.samples.map(s=>s.p),{depth:x.settings.width*(.7+x.settings.bulge*1.5),roundness:THREE.MathUtils.clamp(.25+x.settings.bulge,0,1),edgeRoundness:THREE.MathUtils.clamp((x.settings.sides-8)/20,0,1),smooth:x.settings.smooth})}else{const {path,radii}=resample(x.samples,x.settings);x.mesh.geometry=buildBalloon(path,radii,{sides:x.settings.sides,capRings:6,caps:x.settings.caps!==false,loop:x.settings.loop===true})}x.mesh.material.wireframe=$('#wire').checked;refreshSelectionOutline(x)}
 function addItem(samples,settings=uiSettings(),autoSelect=true,registerSurface=true){const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material()),x={samples,settings:{kind:'tube',bulge:.18,endSoft:.65,loop:false,caps:true,...settings},mesh};items.push(x);scene.add(mesh);rebuild(x);if(registerSurface)surfaceTargets.register(mesh);if(autoSelect)select(x);return x}
 function updateStatus(){const verts=items.reduce((n,x)=>n+(x.mesh.geometry.getAttribute('position')?.count||0),0);status.textContent=`${items.length} balloon${items.length===1?'':'s'} • ${verts} vertices${selected?' • selected':''}`}
 function loadControls(x){$('#width').value=x.settings.width;$('#pressure').value=x.settings.pressure;$('#bulge').value=x.settings.bulge??.18;$('#endSoft').value=x.settings.endSoft??.65;$('#smooth').value=x.settings.smooth;$('#sides').value=x.settings.sides;$('#taper').checked=x.settings.taper;$('#loop').checked=x.settings.loop===true;$('#caps').checked=x.settings.caps!==false;syncOutputs()}
-function updateSelectionUI(){
-  const on=!!selected,tube=on&&(selected.settings.kind||'tube')==='tube';
-  $('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#deselectBtn').disabled=!on;
-  $('#editPointsBtn').disabled=!tube;$('#reducePointsBtn').disabled=!tube;$('#deletePointBtn').disabled=!tube||activePoint<0;
-  $('#gizmoBtn').disabled=!on;$('#gizmoBtn').classList.toggle('active',on&&!editPoints&&gizmoEnabled);
-  $('#editPointsBtn').classList.toggle('active',editPoints&&tube);
-  $('#selectionLabel').textContent=on?`Selected ${selected.settings.kind==='outline'?'outline':'tube'} balloon ${items.indexOf(selected)+1}`:'No balloon selected';
-}
+function updateSelectionUI(){const on=!!selected,tube=on&&(selected.settings.kind||'tube')==='tube';$('#applyBtn').disabled=!on;$('#duplicateBtn').disabled=!on;$('#deselectBtn').disabled=!on;$('#editPointsBtn').disabled=!tube;$('#reducePointsBtn').disabled=!tube;$('#deletePointBtn').disabled=!tube||activePoint<0;$('#gizmoBtn').disabled=!on;$('#gizmoBtn').classList.toggle('active',on&&!editPoints&&gizmoEnabled);$('#editPointsBtn').classList.toggle('active',editPoints&&tube);$('#selectionLabel').textContent=on?`Selected ${selected.settings.kind==='outline'?'outline':'tube'} balloon ${items.indexOf(selected)+1}`:'No balloon selected'}
 function clearPointHandles(resetState=true){for(const h of pointHandles)scene.remove(h);pointHandles=[];if(resetState){activePoint=-1;pointDragId=null;pointDragPlane=null}}
-function refreshPointHandles(){
-  const keepPoint=activePoint,keepDrag=pointDragId,keepPlane=pointDragPlane;clearPointHandles(false);activePoint=keepPoint;pointDragId=keepDrag;pointDragPlane=keepPlane;
-  if(!editPoints||!selected||(selected.settings.kind||'tube')!=='tube')return;
-  const size=Math.max(.035,Math.min(.12,camera.position.distanceTo(orbitPivot)*.012));
-  selected.samples.forEach((s,i)=>{const h=new THREE.Mesh(new THREE.SphereGeometry(size,10,8),i===activePoint?activePointMaterial:pointMaterial);h.position.copy(s.p);h.renderOrder=10;h.userData.sampleIndex=i;scene.add(h);pointHandles.push(h)});
-}
-function syncTransformProxy(){
-  if(!selected||editPoints||mode!=='orbit'||!gizmoEnabled){detachTransforms();return}
-  transformProxy.position.copy(meshCenter(selected));transformProxy.quaternion.identity();transformProxy.scale.setScalar(1);transformProxy.updateMatrixWorld(true);
-  for(const t of transformSet){t.control.attach(transformProxy);t.control.enabled=true;t.helper.visible=true}
-}
-function deselect(keepPivot=true){
-  if(!selected)return;clearSelectionOutline();clearPointHandles();detachTransforms();editPoints=false;
-  selected.mesh.material.emissive.setHex(0);selected=null;if(!keepPivot)setOrbitPivot(null);updateSelectionUI();updateStatus()
-}
-function select(x){
-  clearSelectionOutline();clearPointHandles();detachTransforms();editPoints=false;
-  if(selected)selected.mesh.material.emissive.setHex(0);selected=x;
-  if(x){x.mesh.material.emissive.setHex(0);loadControls(x);setOrbitPivot(x);showSelectionOutline(x);syncTransformProxy()}else setOrbitPivot(null);
-  updateSelectionUI();updateStatus()
-}
-function toggleGizmo(){
-  if(!selected)return;gizmoEnabled=!gizmoEnabled;if(gizmoEnabled){editPoints=false;clearPointHandles();syncTransformProxy();status.textContent='Universal Gizmo: arrows move • rings rotate • scale handles apply uniformly'}else{detachTransforms();status.textContent='Universal Gizmo hidden'}updateSelectionUI()
-}
-function setEditPoints(on){
-  if(!selected||(selected.settings.kind||'tube')!=='tube')return;
-  editPoints=on;detachTransforms();activePoint=-1;refreshPointHandles();updateSelectionUI();
-  status.textContent=on?`Edit Tube points • ${selected.samples.length} points • drag to refine${snapEnabled()?' / snap':''}`:'Point editing off';
-  if(!on)syncTransformProxy();
-}
-function pointHit(e){
-  if(!editPoints||!selected)return null;eventRay(e);
-  const hits=ray.intersectObjects(pointHandles,false);return hits[0]?.object||null;
-}
-function beginPointDrag(e){
-  const h=pointHit(e);if(!h)return false;
-  checkpoint();activePoint=h.userData.sampleIndex;pointDragId=e.pointerId;
-  const normal=new THREE.Vector3();camera.getWorldDirection(normal).normalize();
-  pointDragPlane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,selected.samples[activePoint].p);
-  refreshPointHandles();pointDragId=e.pointerId;updateSelectionUI();return true;
-}
-function movePointDrag(e){
-  if(pointDragId!==e.pointerId||activePoint<0||!selected)return false;
-  eventRay(e);let p=null,normal=null,snapped=false;
-  if(snapEnabled()){
-    const hit=surfaceTargets.hitFromRay(ray.ray,selected.mesh);
-    if(hit){const offset=+$('#surfaceOffset').value;p=hit.position.clone().addScaledVector(hit.normal,offset);normal=hit.normal;snapped=true}
-  }else{
-    p=new THREE.Vector3();if(!ray.ray.intersectPlane(pointDragPlane,p))p=null;
-  }
-  if(!p)return true;
-  const s=selected.samples[activePoint];s.p.copy(p);s.snapped=snapped;s.surfaceNormal=normal?normal.clone():null;s.surfaceOffset=snapped?+$('#surfaceOffset').value:0;
-  rebuild(selected);refreshPointHandles();setOrbitPivot(selected);refreshExport();return true;
-}
+function refreshPointHandles(){const keepPoint=activePoint,keepDrag=pointDragId,keepPlane=pointDragPlane;clearPointHandles(false);activePoint=keepPoint;pointDragId=keepDrag;pointDragPlane=keepPlane;if(!editPoints||!selected||(selected.settings.kind||'tube')!=='tube')return;const size=Math.max(.035,Math.min(.12,camera.position.distanceTo(orbitPivot)*.012));selected.samples.forEach((s,i)=>{const h=new THREE.Mesh(new THREE.SphereGeometry(size,10,8),i===activePoint?activePointMaterial:pointMaterial);h.position.copy(s.p);h.renderOrder=10;h.userData.sampleIndex=i;scene.add(h);pointHandles.push(h)})}
+function syncTransformProxy(){if(!selected||editPoints||mode!=='orbit'||!gizmoEnabled){detachTransforms();return}transformProxy.position.copy(meshCenter(selected));transformProxy.quaternion.identity();transformProxy.scale.setScalar(1);transformProxy.updateMatrixWorld(true);for(const t of transformSet){t.control.attach(transformProxy);t.control.enabled=true;t.helper.visible=true}}
+function deselect(keepPivot=true){if(!selected)return;clearSelectionOutline();clearPointHandles();detachTransforms();editPoints=false;selected.mesh.material.emissive.setHex(0);selected=null;if(!keepPivot)setOrbitPivot(null);updateSelectionUI();updateStatus()}
+function select(x){clearSelectionOutline();clearPointHandles();detachTransforms();editPoints=false;if(selected)selected.mesh.material.emissive.setHex(0);selected=x;if(x){x.mesh.material.emissive.setHex(0);loadControls(x);setOrbitPivot(x);showSelectionOutline(x);syncTransformProxy()}else setOrbitPivot(null);updateSelectionUI();updateStatus()}
+function toggleGizmo(){if(!selected)return;gizmoEnabled=!gizmoEnabled;if(gizmoEnabled){editPoints=false;clearPointHandles();syncTransformProxy();status.textContent='Universal Gizmo: arrows move • rings rotate • scale handles apply uniformly'}else{detachTransforms();status.textContent='Universal Gizmo hidden'}updateSelectionUI()}
+function setEditPoints(on){if(!selected||(selected.settings.kind||'tube')!=='tube')return;editPoints=on;detachTransforms();activePoint=-1;refreshPointHandles();updateSelectionUI();status.textContent=on?`Edit Tube points • ${selected.samples.length} points • drag to refine${snapEnabled()?' / snap':''}`:'Point editing off';if(!on)syncTransformProxy()}
+function pointHit(e){if(!editPoints||!selected)return null;eventRay(e);const hits=ray.intersectObjects(pointHandles,false);return hits[0]?.object||null}
+function beginPointDrag(e){const h=pointHit(e);if(!h)return false;checkpoint();activePoint=h.userData.sampleIndex;pointDragId=e.pointerId;const normal=new THREE.Vector3();camera.getWorldDirection(normal).normalize();pointDragPlane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,selected.samples[activePoint].p);refreshPointHandles();pointDragId=e.pointerId;updateSelectionUI();return true}
+function movePointDrag(e){if(pointDragId!==e.pointerId||activePoint<0||!selected)return false;eventRay(e);let p=null,normal=null,snapped=false;if(snapEnabled()){const hit=surfaceTargets.hitFromRay(ray.ray,selected.mesh);if(hit){const offset=+$('#surfaceOffset').value;p=hit.position.clone().addScaledVector(hit.normal,offset);normal=hit.normal;snapped=true}}else{p=new THREE.Vector3();if(!ray.ray.intersectPlane(pointDragPlane,p))p=null}if(!p)return true;const s=selected.samples[activePoint];s.p.copy(p);s.snapped=snapped;s.surfaceNormal=normal?normal.clone():null;s.surfaceOffset=snapped?+$('#surfaceOffset').value:0;rebuild(selected);refreshPointHandles();setOrbitPivot(selected);refreshExport();return true}
 function endPointDrag(e){if(pointDragId!==e.pointerId)return false;pointDragId=null;pointDragPlane=null;refreshPointHandles();updateStatus();return true}
-function deleteActivePoint(){
-  if(!selected||activePoint<0||(selected.settings.kind||'tube')!=='tube')return;
-  const min=selected.settings.loop?3:2;if(selected.samples.length<=min){status.textContent=`Tube needs at least ${min} points`;return}
-  checkpoint();selected.samples.splice(activePoint,1);activePoint=Math.min(activePoint,selected.samples.length-1);rebuild(selected);refreshPointHandles();setOrbitPivot(selected);refreshExport();updateSelectionUI();status.textContent=`Deleted point • ${selected.samples.length} remain`;
-}
-function pointLineError(p,a,b){
-  const ab=b.clone().sub(a),l=ab.lengthSq();if(l<1e-12)return p.distanceTo(a);
-  const t=THREE.MathUtils.clamp(p.clone().sub(a).dot(ab)/l,0,1);return p.distanceTo(a.clone().addScaledVector(ab,t));
-}
-function reduceTubePoints(){
-  if(!selected||(selected.settings.kind||'tube')!=='tube')return;
-  const loop=!!selected.settings.loop,min=loop?3:2,n=selected.samples.length;if(n<=min+1){status.textContent='Tube already has very few points';return}
-  checkpoint();const target=Math.max(min,Math.ceil(n*.65)),keep=selected.samples.map((_,i)=>i);
-  while(keep.length>target){
-    let bestAt=-1,bestErr=Infinity;
-    for(let k=0;k<keep.length;k++){
-      if(!loop&&(k===0||k===keep.length-1))continue;
-      const prev=keep[(k-1+keep.length)%keep.length],cur=keep[k],next=keep[(k+1)%keep.length];
-      const err=pointLineError(selected.samples[cur].p,selected.samples[prev].p,selected.samples[next].p);
-      if(err<bestErr){bestErr=err;bestAt=k}
-    }
-    if(bestAt<0)break;keep.splice(bestAt,1);
-  }
-  selected.samples=keep.map(i=>selected.samples[i]);activePoint=-1;rebuild(selected);refreshPointHandles();setOrbitPivot(selected);refreshExport();updateSelectionUI();status.textContent=`Reduced Tube points • ${n} → ${selected.samples.length}`;
-}
-function enforceUniformScale(){
-  if(!gizmoDragging||gizmoMode!=='scale')return;
-  const s=transformProxy.scale,vals=[s.x,s.y,s.z],v=vals.reduce((best,x)=>Math.abs(x-1)>Math.abs(best-1)?x:best,1);
-  transformProxy.scale.setScalar(Math.max(.02,v));
-}
-function bakeSelectionTransform(){
-  if(!selected)return;
-  selected.mesh.updateMatrix();const mat=selected.mesh.matrix.clone(),scale=Math.abs(selected.mesh.scale.x);
-  const normalMat=new THREE.Matrix3().getNormalMatrix(mat);
-  selected.samples.forEach(s=>{s.p.applyMatrix4(mat);if(s.surfaceNormal)s.surfaceNormal.applyMatrix3(normalMat).normalize()});
-  if(Math.abs(scale-1)>1e-6)selected.settings.width*=scale;
-  selected.mesh.position.set(0,0,0);selected.mesh.quaternion.identity();selected.mesh.scale.setScalar(1);selected.mesh.updateMatrix();
-  rebuild(selected);setOrbitPivot(selected);refreshExport();syncTransformProxy();updateSelectionUI();
-}
-function beginTransform(t){
-  if(!selected||editPoints||gizmoDragging)return;checkpoint();gizmoDragging=true;gizmoMode=t.kind;activeTransform=t;
-  for(const other of transformSet)if(other!==t)other.control.enabled=false;
-  transformProxy.updateMatrixWorld(true);selected.mesh.updateMatrix();gizmoStartProxy=transformProxy.matrixWorld.clone();gizmoStartMesh=selected.mesh.matrix.clone();
-}
-function changeTransform(t){
-  if(!selected||!gizmoDragging||activeTransform!==t||!gizmoStartProxy||!gizmoStartMesh)return;
-  enforceUniformScale();transformProxy.updateMatrixWorld(true);
-  const delta=transformProxy.matrixWorld.clone().multiply(gizmoStartProxy.clone().invert()),next=delta.multiply(gizmoStartMesh);
-  next.decompose(selected.mesh.position,selected.mesh.quaternion,selected.mesh.scale);selected.mesh.updateMatrixWorld(true);setOrbitPivot(selected);refreshExport();
-}
-function endTransform(t){
-  if(!selected||!gizmoDragging||activeTransform!==t)return;gizmoDragging=false;bakeSelectionTransform();gizmoStartProxy=null;gizmoStartMesh=null;activeTransform=null;
-  for(const other of transformSet)other.control.enabled=true;status.textContent='Transform applied';
-}
+function deleteActivePoint(){if(!selected||activePoint<0||(selected.settings.kind||'tube')!=='tube')return;const min=selected.settings.loop?3:2;if(selected.samples.length<=min){status.textContent=`Tube needs at least ${min} points`;return}checkpoint();selected.samples.splice(activePoint,1);activePoint=Math.min(activePoint,selected.samples.length-1);rebuild(selected);refreshPointHandles();setOrbitPivot(selected);refreshExport();updateSelectionUI();status.textContent=`Deleted point • ${selected.samples.length} remain`}
+function pointLineError(p,a,b){const ab=b.clone().sub(a),l=ab.lengthSq();if(l<1e-12)return p.distanceTo(a);const t=THREE.MathUtils.clamp(p.clone().sub(a).dot(ab)/l,0,1);return p.distanceTo(a.clone().addScaledVector(ab,t))}
+function reduceTubePoints(){if(!selected||(selected.settings.kind||'tube')!=='tube')return;const loop=!!selected.settings.loop,min=loop?3:2,n=selected.samples.length;if(n<=min+1){status.textContent='Tube already has very few points';return}checkpoint();const target=Math.max(min,Math.ceil(n*.65)),keep=selected.samples.map((_,i)=>i);while(keep.length>target){let bestAt=-1,bestErr=Infinity;for(let k=0;k<keep.length;k++){if(!loop&&(k===0||k===keep.length-1))continue;const prev=keep[(k-1+keep.length)%keep.length],cur=keep[k],next=keep[(k+1)%keep.length],err=pointLineError(selected.samples[cur].p,selected.samples[prev].p,selected.samples[next].p);if(err<bestErr){bestErr=err;bestAt=k}}if(bestAt<0)break;keep.splice(bestAt,1)}selected.samples=keep.map(i=>selected.samples[i]);activePoint=-1;rebuild(selected);refreshPointHandles();setOrbitPivot(selected);refreshExport();updateSelectionUI();status.textContent=`Reduced Tube points • ${n} → ${selected.samples.length}`}
+function enforceUniformScale(){if(!gizmoDragging||gizmoMode!=='scale')return;const s=transformProxy.scale,vals=[s.x,s.y,s.z],v=vals.reduce((best,x)=>Math.abs(x-1)>Math.abs(best-1)?x:best,1);transformProxy.scale.setScalar(Math.max(.02,v))}
+function bakeSelectionTransform(){if(!selected)return;selected.mesh.updateMatrix();const mat=selected.mesh.matrix.clone(),scale=Math.abs(selected.mesh.scale.x),normalMat=new THREE.Matrix3().getNormalMatrix(mat);selected.samples.forEach(s=>{s.p.applyMatrix4(mat);if(s.surfaceNormal)s.surfaceNormal.applyMatrix3(normalMat).normalize()});if(Math.abs(scale-1)>1e-6)selected.settings.width*=scale;selected.mesh.position.set(0,0,0);selected.mesh.quaternion.identity();selected.mesh.scale.setScalar(1);selected.mesh.updateMatrix();rebuild(selected);setOrbitPivot(selected);refreshExport();syncTransformProxy();updateSelectionUI()}
+function beginTransform(t){if(!selected||editPoints||gizmoDragging)return;checkpoint();gizmoDragging=true;gizmoMode=t.kind;activeTransform=t;for(const other of transformSet)if(other!==t)other.control.enabled=false;transformProxy.updateMatrixWorld(true);selected.mesh.updateMatrix();gizmoStartProxy=transformProxy.matrixWorld.clone();gizmoStartMesh=selected.mesh.matrix.clone()}
+function changeTransform(t){if(!selected||!gizmoDragging||activeTransform!==t||!gizmoStartProxy||!gizmoStartMesh)return;enforceUniformScale();transformProxy.updateMatrixWorld(true);const delta=transformProxy.matrixWorld.clone().multiply(gizmoStartProxy.clone().invert()),next=delta.multiply(gizmoStartMesh);next.decompose(selected.mesh.position,selected.mesh.quaternion,selected.mesh.scale);selected.mesh.updateMatrixWorld(true);setOrbitPivot(selected);refreshExport()}
+function endTransform(t){if(!selected||!gizmoDragging||activeTransform!==t)return;gizmoDragging=false;bakeSelectionTransform();gizmoStartProxy=null;gizmoStartMesh=null;activeTransform=null;for(const other of transformSet)other.control.enabled=true;status.textContent='Transform applied'}
 for(const t of transformSet){t.control.addEventListener('mouseDown',()=>beginTransform(t));t.control.addEventListener('objectChange',()=>changeTransform(t));t.control.addEventListener('mouseUp',()=>endTransform(t))}
 function pencilOnly(){return !!$('#pencilOnly')?.checked}
 function setMode(m){mode=m;$('#drawBtn').classList.toggle('active',m==='draw');$('#orbitBtn').classList.toggle('active',m==='orbit');if(m==='orbit')status.textContent='Orbit / Select: free 360° trackball • 2 fingers pan/pinch • tap selects';else status.textContent=pencilOnly()?'Draw: Pencil draws • 1 finger orbits • 2-finger Undo • 3-finger Redo':'Draw: finger or Pencil draws • 2-finger Undo • 3-finger Redo'}
 function syncOutputs(){$('#widthOut').value=(+$('#width').value).toFixed(2);$('#pressureOut').value=`${Math.round(+$('#pressure').value*100)}%`;$('#bulgeOut').value=`${Math.round(+$('#bulge').value*100)}%`;$('#endSoftOut').value=`${Math.round(+$('#endSoft').value*100)}%`;$('#smoothOut').value=$('#smooth').value;$('#sidesOut').value=$('#sides').value}
 function applySelected(saveUndo=false){if(!selected)return;if(saveUndo)checkpoint();selected.settings={...uiSettings(),kind:selected.settings.kind||'tube'};rebuild(selected);setOrbitPivot(selected);if(editPoints)refreshPointHandles();else syncTransformProxy();refreshExport();updateSelectionUI();updateStatus()}
 
-function serializeOBJ(){let out='# MeshUtilz Balloon v0.8.6.2\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
-function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.8.6.2.obj';a.classList.remove('disabled')}
+function serializeOBJ(){let out='# MeshUtilz Balloon v0.8.7\n',offset=1;for(let i=0;i<items.length;i++){const x=items[i],g=x.mesh.geometry,pos=g.getAttribute('position');if(!pos||pos.count<3)continue;const index=g.index;out+=`o ${x.settings.kind==='outline'?'Outline':'Tube'}_Balloon_${i+1}\n`;x.mesh.updateMatrixWorld(true);for(let n=0;n<pos.count;n++){const v=new THREE.Vector3().fromBufferAttribute(pos,n).applyMatrix4(x.mesh.matrixWorld);out+=`v ${v.x} ${v.y} ${v.z}\n`}if(index){for(let n=0;n+2<index.count;n+=3)out+=`f ${index.getX(n)+offset} ${index.getX(n+1)+offset} ${index.getX(n+2)+offset}\n`}offset+=pos.count}return out}
+function refreshExport(){const a=$('#exportBtn');if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null}const valid=items.some(x=>(x.mesh.geometry.getAttribute('position')?.count||0)>=3);if(!valid){a.classList.add('disabled');a.removeAttribute('download');a.href='#';return}exportUrl=URL.createObjectURL(new Blob([serializeOBJ()],{type:'text/plain;charset=utf-8'}));a.href=exportUrl;a.download='MeshUtilz-Balloon-v0.8.7.obj';a.classList.remove('disabled')}
 
 function surfaceSample(e){eventRay(e);const hit=surfaceTargets.hitFromRay(ray.ray,current?.mesh);if(!hit)return null;const offset=+$('#surfaceOffset').value;return {p:hit.position.clone().addScaledVector(hit.normal,offset),pressure:eventPressure(e),snapped:true,surfaceNormal:hit.normal,surfaceOffset:offset}}
 function snapEnabled(){return $('#snapSurface').checked}
 function startDraw(e){const snap=snapEnabled(),sample=snap?surfaceSample(e):null;if(snap&&!sample){status.textContent='Snap: point at a reference or existing balloon surface to start';return}activeDrawPlane=snap?null:plane().clone();const p=sample?.p||pointFromEvent(e);if(!p){activeDrawPlane=null;return}checkpoint();drawing=true;current=addItem([sample||{p,pressure:eventPressure(e),snapped:false,surfaceNormal:null,surfaceOffset:0}],uiSettings(),false,false);renderer.domElement.setPointerCapture(e.pointerId);status.textContent=$('#creation').value==='outline'?'Drawing closed outline…':'Drawing tube balloon…'}
-function moveDraw(e){if(!drawing||!current)return;const snap=current.settings.kind&&$('#snapSurface').checked;const sample=snap?surfaceSample(e):null;if(snap&&!sample)return;const p=sample?.p||pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push(sample||{p,pressure:eventPressure(e),snapped:false,surfaceNormal:null,surfaceOffset:0});rebuild(current);updateStatus()}}
+function moveDraw(e){if(!drawing||!current)return;const snap=current.settings.kind&&$('#snapSurface').checked,sample=snap?surfaceSample(e):null;if(snap&&!sample)return;const p=sample?.p||pointFromEvent(e);if(!p)return;const last=current.samples.at(-1).p;if(p.distanceTo(last)>.035){current.samples.push(sample||{p,pressure:eventPressure(e),snapped:false,surfaceNormal:null,surfaceOffset:0});rebuild(current);updateStatus()}}
 function finishStroke(){if(!drawing)return;drawing=false;if(!current){activeDrawPlane=null;return}const minimum=current.settings.kind==='outline'?3:2;if(current.samples.length<minimum){disposeItem(current);items=items.filter(x=>x!==current);current=null;activeDrawPlane=null;select(items.at(-1)||null);refreshExport();return}const finished=current;current=null;surfaceTargets.register(finished.mesh);activeDrawPlane=null;rebuild(finished);select(finished);refreshExport();updateStatus()}
 function cancelFingerDraft(){if(!drawing||!current)return;disposeItem(current);items=items.filter(x=>x!==current);current=null;drawing=false;activeDrawPlane=null;if(undo.length)undo.pop();refreshExport();updateStatus()}
 function trackballPoint(x,y){const r=renderer.domElement.getBoundingClientRect(),nx=(x-r.left)/r.width*2-1,ny=1-(y-r.top)/r.height*2,rr=nx*nx+ny*ny;return rr<=1?new THREE.Vector3(nx,ny,Math.sqrt(1-rr)):new THREE.Vector3(nx,ny,0).normalize()}
@@ -261,55 +120,18 @@ function beginTapGesture(e){if(!tapGesture)tapGesture={started:performance.now()
 function markTapMovement(e){if(!tapGesture||tapGesture.moved)return;const p=tapGesture.starts.get(e.pointerId);if(!p)return;if(Math.hypot(e.clientX-p.x,e.clientY-p.y)>12)tapGesture.moved=true}
 function finishTapGesture(){if(!tapGesture)return;const g=tapGesture;tapGesture=null;if(g.moved||performance.now()-g.started>500)return;if(g.maxTouches===2)doUndo();else if(g.maxTouches===3)doRedo()}
 function touchDown(e){touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});beginTapGesture(e);if(touchPointers.size===1){pinchState=null;trackOrbitDown(e);return}if(touchPointers.size===2){orbitTap=null;pinchState=touchMetrics()}}
-function panView(dx,dy){const h=Math.max(1,renderer.domElement.clientHeight);const dist=Math.max(.2,camera.position.distanceTo(orbitPivot));const worldPerPixel=2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))/h;const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize();const up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize();const delta=right.multiplyScalar(-dx*worldPerPixel).addScaledVector(up,dy*worldPerPixel);camera.position.add(delta);orbitPivot.add(delta);controls.target.add(delta)}
-function touchMove(e){if(!touchPointers.has(e.pointerId))return;markTapMovement(e);touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size>=2){const m=touchMetrics();if(!m)return;if(!pinchState)pinchState=m;const panDx=m.cx-pinchState.cx,panDy=m.cy-pinchState.cy;if(Math.hypot(panDx,panDy)>.05)panView(panDx,panDy);const ratio=m.distance/pinchState.distance;if(Math.abs(ratio-1)>.002){const forward=new THREE.Vector3();camera.getWorldDirection(forward);const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));let step=Math.log(ratio)*scale*.85;const next=camera.position.clone().addScaledVector(forward,step);const minDist=.18,maxDist=250,dist=next.distanceTo(orbitPivot);if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);if(dist<=maxDist)camera.position.addScaledVector(forward,step);keepControlsAligned()}pinchState=m;return}trackOrbitMove(e)}
+function panView(dx,dy){const h=Math.max(1,renderer.domElement.clientHeight),dist=Math.max(.2,camera.position.distanceTo(orbitPivot)),worldPerPixel=2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))/h,right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).normalize(),up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize(),delta=right.multiplyScalar(-dx*worldPerPixel).addScaledVector(up,dy*worldPerPixel);camera.position.add(delta);orbitPivot.add(delta);controls.target.add(delta)}
+function touchMove(e){if(!touchPointers.has(e.pointerId))return;markTapMovement(e);touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touchPointers.size>=2){const m=touchMetrics();if(!m)return;if(!pinchState)pinchState=m;const panDx=m.cx-pinchState.cx,panDy=m.cy-pinchState.cy;if(Math.hypot(panDx,panDy)>.05)panView(panDx,panDy);const ratio=m.distance/pinchState.distance;if(Math.abs(ratio-1)>.002){const forward=new THREE.Vector3();camera.getWorldDirection(forward);const scale=Math.max(.5,camera.position.distanceTo(orbitPivot));let step=Math.log(ratio)*scale*.85;const next=camera.position.clone().addScaledVector(forward,step),minDist=.18,maxDist=250,dist=next.distanceTo(orbitPivot);if(dist<minDist)step*=Math.max(0,(dist-minDist)/minDist);if(dist<=maxDist)camera.position.addScaledVector(forward,step);keepControlsAligned()}pinchState=m;return}trackOrbitMove(e)}
 function touchUp(e){const wasSingle=touchPointers.size===1;if(wasSingle)finishOrbitTap(e);touchPointers.delete(e.pointerId);if(touchPointers.size<2)pinchState=null;if(touchPointers.size===1){const [id,p]=touchPointers.entries().next().value;orbitTap={id,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:true}}else if(touchPointers.size===0){orbitTap=null;finishTapGesture()}}
-function beginTwoFingerNavigation(e){
-  const id=fingerDrawId,last=fingerDrawLast,start=fingerDrawStart;
-  const firstMoved=!!(start&&last&&Math.hypot(last.x-start.x,last.y-start.y)>12);
-  cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;touchPointers.clear();
-  if(id!==null&&last)touchPointers.set(id,{x:last.x,y:last.y});touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  tapGesture={started:performance.now(),maxTouches:touchPointers.size,moved:firstMoved,starts:new Map()};
-  for(const [pid,p] of touchPointers)tapGesture.starts.set(pid,{x:p.x,y:p.y});
-  orbitTap=null;pinchState=touchMetrics();
-}
+function beginTwoFingerNavigation(e){const id=fingerDrawId,last=fingerDrawLast,start=fingerDrawStart,firstMoved=!!(start&&last&&Math.hypot(last.x-start.x,last.y-start.y)>12);cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;touchPointers.clear();if(id!==null&&last)touchPointers.set(id,{x:last.x,y:last.y});touchPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});tapGesture={started:performance.now(),maxTouches:touchPointers.size,moved:firstMoved,starts:new Map()};for(const [pid,p] of touchPointers)tapGesture.starts.set(pid,{x:p.x,y:p.y});orbitTap=null;pinchState=touchMetrics()}
 
-renderer.domElement.addEventListener('pointerdown',e=>{
-  if(mode==='orbit'&&editPoints&&beginPointDrag(e)){e.preventDefault();e.stopImmediatePropagation();return}
-  if(e.pointerType==='touch'){
-    e.preventDefault();
-    if(mode==='orbit'){touchDown(e);return}
-    e.stopImmediatePropagation();
-    if(mode==='draw'&&!pencilOnly()){if(fingerDrawId===null&&touchPointers.size===0){fingerDrawId=e.pointerId;fingerDrawStart={x:e.clientX,y:e.clientY};fingerDrawLast={x:e.clientX,y:e.clientY};startDraw(e);return}if(fingerDrawId!==null&&e.pointerId!==fingerDrawId){beginTwoFingerNavigation(e);return}}
-    touchDown(e);return
-  }
-  if(mode==='orbit'){trackOrbitDown(e);return}e.stopImmediatePropagation();startDraw(e)
-},{capture:true});
-renderer.domElement.addEventListener('pointermove',e=>{
-  if(pointDragId===e.pointerId){e.preventDefault();e.stopImmediatePropagation();movePointDrag(e);return}
-  if(mode==='orbit'&&gizmoDragging)return;
-  if(e.pointerType==='touch'){
-    e.preventDefault();
-    if(mode==='orbit'){touchMove(e);return}
-    e.stopImmediatePropagation();if(e.pointerId===fingerDrawId&&mode==='draw'&&!pencilOnly()){fingerDrawLast={x:e.clientX,y:e.clientY};moveDraw(e);return}touchMove(e);return
-  }
-  if(mode==='orbit'){trackOrbitMove(e);return}e.stopImmediatePropagation();moveDraw(e)
-},{capture:true});
-renderer.domElement.addEventListener('pointerup',e=>{
-  if(pointDragId===e.pointerId){e.preventDefault();e.stopImmediatePropagation();endPointDrag(e);return}
-  if(e.pointerType==='touch'){
-    e.preventDefault();
-    if(mode==='orbit'){touchUp(e);return}
-    e.stopImmediatePropagation();if(e.pointerId===fingerDrawId){finishStroke();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;return}touchUp(e);return
-  }
-  if(mode==='orbit'){finishOrbitTap(e);return}e.stopImmediatePropagation();finishStroke()
-},{capture:true});
-renderer.domElement.addEventListener('pointercancel',e=>{
-  if(pointDragId===e.pointerId){pointDragId=null;pointDragPlane=null;return}
-  if(e.pointerType==='touch'){if(e.pointerId===fingerDrawId){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;return}touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;tapGesture=null;return}
-  if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()
-},{capture:true});
+renderer.domElement.addEventListener('pointerdown',e=>{if(mode==='orbit'&&editPoints&&beginPointDrag(e)){e.preventDefault();e.stopImmediatePropagation();return}if(e.pointerType==='touch'){e.preventDefault();if(mode==='orbit'){touchDown(e);return}e.stopImmediatePropagation();if(mode==='draw'&&!pencilOnly()){if(fingerDrawId===null&&touchPointers.size===0){fingerDrawId=e.pointerId;fingerDrawStart={x:e.clientX,y:e.clientY};fingerDrawLast={x:e.clientX,y:e.clientY};startDraw(e);return}if(fingerDrawId!==null&&e.pointerId!==fingerDrawId){beginTwoFingerNavigation(e);return}}touchDown(e);return}if(mode==='orbit'){trackOrbitDown(e);return}e.stopImmediatePropagation();startDraw(e)},{capture:true});
+renderer.domElement.addEventListener('pointermove',e=>{if(pointDragId===e.pointerId){e.preventDefault();e.stopImmediatePropagation();movePointDrag(e);return}if(mode==='orbit'&&gizmoDragging)return;if(e.pointerType==='touch'){e.preventDefault();if(mode==='orbit'){touchMove(e);return}e.stopImmediatePropagation();if(e.pointerId===fingerDrawId&&mode==='draw'&&!pencilOnly()){fingerDrawLast={x:e.clientX,y:e.clientY};moveDraw(e);return}touchMove(e);return}if(mode==='orbit'){trackOrbitMove(e);return}e.stopImmediatePropagation();moveDraw(e)},{capture:true});
+renderer.domElement.addEventListener('pointerup',e=>{if(pointDragId===e.pointerId){e.preventDefault();e.stopImmediatePropagation();endPointDrag(e);return}if(e.pointerType==='touch'){e.preventDefault();if(mode==='orbit'){touchUp(e);return}e.stopImmediatePropagation();if(e.pointerId===fingerDrawId){finishStroke();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;return}touchUp(e);return}if(mode==='orbit'){finishOrbitTap(e);return}e.stopImmediatePropagation();finishStroke()},{capture:true});
+renderer.domElement.addEventListener('pointercancel',e=>{if(pointDragId===e.pointerId){pointDragId=null;pointDragPlane=null;return}if(e.pointerType==='touch'){if(e.pointerId===fingerDrawId){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null;return}touchPointers.delete(e.pointerId);pinchState=null;orbitTap=null;tapGesture=null;return}if(mode==='orbit'){orbitTap=null;return}e.stopImmediatePropagation();finishStroke()},{capture:true});
 
+$('#saveProjectBtn').onclick=saveProject;$('#loadProjectBtn').onclick=()=>$('#projectFile').click();$('#newProjectBtn').onclick=newProject;
+$('#projectFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;status.textContent=`Loading project ${file.name}…`;try{await loadProjectFile(file)}catch(err){status.textContent=`Project load failed: ${err.message}`}finally{e.target.value=''}};
 $('#drawBtn').onclick=()=>{if(editPoints)setEditPoints(false);detachTransforms();setMode('draw')};$('#orbitBtn').onclick=()=>{setMode('orbit');if(selected&&!editPoints)syncTransformProxy()};
 $('#editPointsBtn').onclick=()=>setEditPoints(!editPoints);$('#deletePointBtn').onclick=deleteActivePoint;$('#reducePointsBtn').onclick=reduceTubePoints;$('#gizmoBtn').onclick=toggleGizmo;
 $('#pencilOnly').onchange=()=>{if(fingerDrawId!==null){cancelFingerDraft();fingerDrawId=null;fingerDrawLast=null;fingerDrawStart=null}setMode(mode)};
@@ -319,15 +141,12 @@ $('#creation').addEventListener('change',()=>{if(selected)deselect(true);status.
 $('#wire').oninput=()=>{items.forEach(rebuild);refreshExport()};$('#applyBtn').onclick=()=>applySelected(true);$('#deselectBtn').onclick=()=>deselect(true);
 $('#duplicateBtn').onclick=()=>{if(!selected)return;checkpoint();const copy=addItem(selected.samples.map(cloneSample),{...selected.settings},true);copy.mesh.position.y+=.18;setOrbitPivot(copy);refreshExport()};
 $('#loadReferenceBtn').onclick=()=>$('#referenceFile').click();
-$('#referenceFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;$('#referenceStatus').textContent=`Loading ${file.name}…`;try{const root=await loadReferenceMesh(file);if(referenceRoot){surfaceTargets.unregister(referenceRoot);referenceGroup.remove(referenceRoot)}referenceRoot=root;referenceRoot.visible=$('#showReference').checked;referenceGroup.add(root);surfaceTargets.register(root);$('#referenceStatus').textContent=`Loaded ${file.name}`}catch(err){$('#referenceStatus').textContent=`Load failed: ${err.message}`}finally{e.target.value=''}};
-$('#showReference').onchange=e=>{if(referenceRoot)referenceRoot.visible=e.target.checked};
-$('#surfaceOffset').oninput=()=>$('#surfaceOffsetOut').value=(+$('#surfaceOffset').value).toFixed(2);
-$('#snapSurface').onchange=()=>{status.textContent=$('#snapSurface').checked?'Surface Snap enabled for new Tube and Outline Balloon strokes':'Surface Snap off — drawing plane active'};
-$('#nomadDetail').onchange=()=>{status.textContent=`Nomad export detail: ${$('#nomadDetail').value}`};
+$('#referenceFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;$('#referenceStatus').textContent=`Loading ${file.name}…`;try{const root=await loadReferenceMesh(file);if(referenceRoot){surfaceTargets.unregister(referenceRoot);referenceGroup.remove(referenceRoot)}referenceRoot=root;referenceName=file.name;referenceRoot.visible=$('#showReference').checked;referenceGroup.add(root);surfaceTargets.register(root);$('#referenceStatus').textContent=`Loaded ${file.name}`}catch(err){$('#referenceStatus').textContent=`Load failed: ${err.message}`}finally{e.target.value=''}};
+$('#showReference').onchange=e=>{if(referenceRoot)referenceRoot.visible=e.target.checked};$('#surfaceOffset').oninput=()=>$('#surfaceOffsetOut').value=(+$('#surfaceOffset').value).toFixed(2);$('#snapSurface').onchange=()=>{status.textContent=$('#snapSurface').checked?'Surface Snap enabled for new Tube and Outline Balloon strokes':'Surface Snap off — drawing plane active'};$('#nomadDetail').onchange=()=>{status.textContent=`Nomad export detail: ${$('#nomadDetail').value}`};
 $('#undoBtn').onclick=doUndo;$('#redoBtn').onclick=doRedo;
 $('#deleteBtn').onclick=()=>{if(!selected)return;checkpoint();const doomed=selected;deselect(true);disposeItem(doomed);items=items.filter(x=>x!==doomed);select(items.at(-1)||null);refreshExport()};$('#clearBtn').onclick=()=>{if(!items.length)return;checkpoint();restore([])};
 $('#exportBtn').addEventListener('click',e=>{if($('#exportBtn').classList.contains('disabled')){e.preventDefault();status.textContent='Nothing to export'}else status.textContent=`OBJ ready • ${items.length} balloon${items.length===1?'':'s'}`});
-$('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');button.disabled=true;button.textContent='Building Live NOM…';try{const detail=$('#nomadDetail').value,result=await buildLiveNomadBalloon(items,THREE,{detail}),url=URL.createObjectURL(new Blob([result.bytes],{type:'application/x-nomad-sculpt'})),a=document.createElement('a');a.href=url;a.download=`MeshUtilz-Live-Nomad-Balloons-v0.8.6.2-${detail}-${result.count}.nom`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);const tubeText=`${result.tubeCount} live Tube${result.tubeCount===1?'':'s'}`,outlineText=`${result.outlineCount} Outline mesh${result.outlineCount===1?'':'es'}`,points=result.tubeCount?` • ${result.sourcePoints} → ${result.exportPoints} Tube control points`:'';status.textContent=`NOM ready • ${tubeText} • ${outlineText}${points} • ${detail}`}catch(err){status.textContent=`Live NOM export failed: ${err.message}`}finally{button.disabled=false;button.textContent='Save Live Nomad Balloon — NOM'}};
+$('#exportLiveNomBtn').onclick=async()=>{const button=$('#exportLiveNomBtn');button.disabled=true;button.textContent='Building Live NOM…';try{const detail=$('#nomadDetail').value,result=await buildLiveNomadBalloon(items,THREE,{detail}),url=URL.createObjectURL(new Blob([result.bytes],{type:'application/x-nomad-sculpt'})),a=document.createElement('a');a.href=url;a.download=`MeshUtilz-Live-Nomad-Balloons-v0.8.7-${detail}-${result.count}.nom`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);const tubeText=`${result.tubeCount} live Tube${result.tubeCount===1?'':'s'}`,outlineText=`${result.outlineCount} Outline mesh${result.outlineCount===1?'':'es'}`,points=result.tubeCount?` • ${result.sourcePoints} → ${result.exportPoints} Tube control points`:'';status.textContent=`NOM ready • ${tubeText} • ${outlineText}${points} • ${detail}`}catch(err){status.textContent=`Live NOM export failed: ${err.message}`}finally{button.disabled=false;button.textContent='Save Live Nomad Balloon — NOM'}};
 
 function resize(){const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(editPoints)refreshPointHandles()}
 function resetInitialView(){controls.target.copy(WORLD_ORIGIN);orbitPivot.copy(WORLD_ORIGIN);camera.position.set(7,7,7);camera.up.set(0,1,0);camera.lookAt(WORLD_ORIGIN)}
