@@ -3,8 +3,8 @@
   ready(()=>{
     const $=s=>document.querySelector(s),aside=$('aside');
     if(!aside)return;
-    document.title='MeshUtilz Balloon v0.9.0.3';
-    const header=$('header span');if(header)header.textContent='Balloon v0.9.0.3';
+    document.title='MeshUtilz Balloon v0.9.1';
+    const header=$('header span');if(header)header.textContent='Balloon v0.9.1';
 
     const section=(title,open=true)=>{const d=document.createElement('details');d.className='ui-section';d.open=open;const s=document.createElement('summary');s.textContent=title;const body=document.createElement('div');body.className='ui-section-body';d.append(s,body);return {d,body}};
     const project=section('Project',false),reference=section('Reference',false),create=section('Create',true),shape=section('Shape',true),edit=section('Edit',true),exportSec=section('Export',true);
@@ -20,7 +20,6 @@
     if(createToggles.children.length)create.body.appendChild(createToggles);
     move(labelOf('#plane'),create.body);
 
-    // Move the remaining reference controls only after Snap has been extracted into Create.
     const referencePanel=$('.reference-panel');
     if(referencePanel){
       const referenceWireLabel=document.createElement('label');
@@ -51,7 +50,6 @@
 
     aside.replaceChildren(project.d,reference.d,create.d,shape.d,edit.d,exportSec.d);
 
-    // Balloon wireframe is OFF for a fresh session by default.
     const wire=$('#wire');
     if(wire){wire.checked=false;wire.dispatchEvent(new Event('input',{bubbles:true}))}
 
@@ -71,8 +69,8 @@
     function syncContext(){
       const selected=!!($('#applyBtn')&&!$('#applyBtn').disabled),kind=activeKind();
       tubeControls.hidden=kind!=='tube';
-      const refineTitle=$('.refine-title'),refineRows=[...edit.body.querySelectorAll('.refine-row')];
-      if(refineTitle)refineTitle.hidden=!selected;
+      const refineTitles=[...edit.body.querySelectorAll('.refine-title')],refineRows=[...edit.body.querySelectorAll('.refine-row')];
+      refineTitles.forEach(t=>t.hidden=!selected);
       refineRows.forEach(r=>r.hidden=!selected);
     }
     $('#creation')?.addEventListener('change',()=>queueMicrotask(syncContext));
@@ -93,7 +91,8 @@
       .create-toggles-inline{display:grid;grid-template-columns:1.25fr 1fr .85fr;gap:2px 6px;align-items:center}
       .create-toggles-inline label{margin:0;white-space:nowrap;font-size:10px}
       .reference-wire-label{margin-top:4px!important}
+      .object-edit-row button{font-size:9px;padding-left:3px!important;padding-right:3px!important}
     `;document.head.appendChild(style);
-    const status=$('#status');if(status)status.textContent='v0.9.0.3 • Snap fixed in Create • reference wireframe added';
+    const status=$('#status');if(status)status.textContent='v0.9.1 • object editing tools';
   });
 })();
