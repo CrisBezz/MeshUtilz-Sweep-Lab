@@ -3,8 +3,8 @@ import * as THREE from 'three';
 const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
 ready(()=>{
   const $=s=>document.querySelector(s),status=$('#status');
-  document.title='MeshUtilz Balloon v0.9.2.2';
-  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.2';
+  document.title='MeshUtilz Balloon v0.9.2.3';
+  const header=$('header span');if(header)header.textContent='Balloon v0.9.2.3';
 
   const panel=$('.reference-panel');
   if(!panel)return;
@@ -24,8 +24,10 @@ ready(()=>{
       <div class="reference-axis-compact"><span>Z</span><div class="reference-scrub" data-axis="z"></div><output id="referenceZOut">0.00</output></div>
     </div>
     <div class="reference-scale-row"><span>Scale</span><div class="reference-scrub reference-scale-scrub" data-axis="scale"></div><output id="referenceScaleOut">100%</output></div>
-    <div class="reference-transform-buttons"><button id="referenceCentreBtn">Centre</button><button id="referenceResetBtn">Reset</button><button data-ref-rotate="x">X +90°</button><button data-ref-rotate="y">Y +90°</button><button data-ref-rotate="z">Z +90°</button></div>
+    <div class="reference-origin-row"><button id="referenceCentreBtn">Centre Origin</button><button id="referenceResetBtn">Reset Transform</button></div>
+    <div class="reference-rotate-row"><button data-ref-rotate="x">X +90°</button><button data-ref-rotate="y">Y +90°</button><button data-ref-rotate="z">Z +90°</button></div>
     <div class="reference-display-row"></div>
+    <label class="reference-edges-row"><input id="referenceEdges" type="checkbox"> Shaded + edge</label>
   `;
   panel.appendChild(tools);
 
@@ -36,10 +38,9 @@ ready(()=>{
 
   const displayRow=tools.querySelector('.reference-display-row');
   const isolateLabel=document.createElement('label');isolateLabel.innerHTML='<input id="referenceIsolate" type="checkbox"> Isolate ref';
-  const edgesLabel=document.createElement('label');edgesLabel.innerHTML='<input id="referenceEdges" type="checkbox"> Shaded + edge';
   if(showReferenceLabel){const text=[...showReferenceLabel.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);if(text)text.textContent=' Show ref mesh';displayRow.appendChild(showReferenceLabel)}
-  displayRow.appendChild(isolateLabel,edgesLabel);
-  if(referenceWireLabel){const text=[...referenceWireLabel.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);if(text)text.textContent=' Wireframe';displayRow.appendChild(referenceWireLabel)}
+  displayRow.appendChild(isolateLabel);
+  if(referenceWireLabel){const text=[...referenceWireLabel.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);if(text)text.textContent=' Ref wireframe';displayRow.appendChild(referenceWireLabel)}
 
   const opacity=$('#referenceOpacity'),opacityOut=$('#referenceOpacityOut'),wire=$('#referenceWire'),edges=$('#referenceEdges'),isolate=$('#referenceIsolate');
   let overlayRoot=null;
@@ -100,11 +101,13 @@ ready(()=>{
     .reference-scrub{height:18px;touch-action:none;cursor:ew-resize;border-radius:3px;background-position:var(--offset,0px) 0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.38) 0 1px,transparent 1px 9px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
     .reference-scrub:after{content:'';display:block;width:2px;height:18px;margin:auto;background:rgba(255,255,255,.92)}
     .reference-scale-row output{text-align:right;font-size:8px;opacity:.8}
-    .reference-transform-buttons{display:grid;grid-template-columns:1fr 1fr .72fr .72fr .72fr;gap:3px}
-    .reference-transform-buttons button{min-width:0;padding:3px 2px;font-size:8px}
-    .reference-display-row{display:grid;grid-template-columns:1.15fr .95fr 1.15fr .82fr;gap:3px;align-items:center;margin-top:1px}
+    .reference-origin-row{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+    .reference-rotate-row{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+    .reference-origin-row button,.reference-rotate-row button{min-width:0;padding:3px 2px;font-size:8px}
+    .reference-display-row{display:grid;grid-template-columns:1.12fr 1fr 1fr;gap:3px;align-items:center;margin-top:1px}
     .reference-display-row label{margin:0;white-space:nowrap;font-size:8px}
+    .reference-edges-row{margin:0!important;font-size:8px;white-space:nowrap}
   `;document.head.appendChild(style);
   applyOpacity();updateOutputs();
-  if(status)status.textContent='v0.9.2.2 • Compact reference controls';
+  if(status)status.textContent='v0.9.2.3 • Compact reference control rows';
 });
