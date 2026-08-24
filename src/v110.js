@@ -2,7 +2,7 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status'),aside=$('aside');
-    const build=window.BALLOON_BUILD||'1.1.0';
+    const build=window.BALLOON_BUILD||'1.1.1';
     const nameKey='meshutilz-project-name-v110';
     let projectName='Untitled Project',pendingReferenceState=null;
     try{projectName=String(localStorage.getItem(nameKey)||projectName)}catch{}
@@ -42,7 +42,7 @@
       const d=document.createElement('details');d.className='ui-section';
       const s=document.createElement('summary');s.textContent='About';
       const body=document.createElement('div');body.className='ui-section-body workflow-about';
-      body.innerHTML=`<p><strong>MeshUtilz Balloon v${build}</strong> — Workflow release.</p><p>Project files now retain the project name and reference display/transform setup. Reference geometry itself remains external and is reloaded separately.</p><p>Keyboard: D Draw • O Orbit • Esc Deselect • Cmd/Ctrl+Z Undo.</p>`;
+      body.innerHTML=`<p><strong>MeshUtilz Balloon v${build}</strong> — Workflow release.</p><p>Project files retain the project name, Balloon names and reference display/transform setup. Reference geometry itself remains external and is reloaded separately.</p><p>Keyboard: D Draw • O Orbit • Esc Deselect • Cmd/Ctrl+Z Undo.</p>`;
       d.append(s,body);
       const exportSection=findSection('Export');
       if(exportSection)aside.insertBefore(d,exportSection.nextSibling);else aside.appendChild(d);
@@ -80,10 +80,25 @@
       return true;
     }
 
+    function restoreObjectNames(data){
+      const incoming=Array.isArray(data?.objectNames)?data.objectNames.map(x=>String(x||'').trim()):null;
+      if(!incoming)return;
+      const target=Array.isArray(data.items)?data.items.length:incoming.length;
+      let tries=0;
+      const apply=()=>{
+        const api=window.MeshUtilzOutlinerAPI,items=api?.list?.()||[];
+        if(api?.renameIndex&&items.length===target){
+          incoming.slice(0,items.length).forEach((name,i)=>{if(name)api.renameIndex(i,name)});
+          if(status)status.textContent=`Project loaded • ${items.length} balloon${items.length===1?'':'s'} • names restored`;
+          return;
+        }
+        if(tries++<50)setTimeout(apply,50);
+      };
+      setTimeout(apply,40);
+    }
+
     addEventListener('meshutilz-reference-loaded',()=>setTimeout(()=>applyReferenceState(pendingReferenceState),80));
 
-    // Save workflow metadata before the older naming layer sees the same click. This also
-    // carries Outliner names, so the v0.9.7 save interceptor is deliberately bypassed.
     document.addEventListener('click',async e=>{
       const a=e.target?.closest?.('a');
       if(!a||a.dataset.v110Workflow==='1'||!String(a.download||'').toLowerCase().endsWith('.meshutilz')||!String(a.href||'').startsWith('blob:'))return;
@@ -92,7 +107,7 @@
         const data=JSON.parse(await (await fetch(a.href)).text());
         const api=window.MeshUtilzOutlinerAPI;
         if(api?.list){data.objectNames=api.list().map(x=>x.name||'');data.namingVersion=1}
-        data.workflow={version:1,projectName:cleanName(projectName),referenceState:captureReferenceState()};
+        data.workflow={version:2,projectName:cleanName(projectName),referenceState:captureReferenceState()};
         const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),out=document.createElement('a');
         out.href=url;out.download=`${fileBase()}.meshutilz`;out.dataset.v110Workflow='1';out.dataset.v097Names='1';document.body.appendChild(out);out.click();out.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
         if(status)status.textContent=`Project saved • ${projectName}`;
@@ -107,9 +122,10 @@
           const file=e.target.files?.[0];if(!file)return;
           file.text().then(text=>{
             let data;try{data=JSON.parse(text)}catch{return}
-            const flow=data.workflow;if(!flow)return;
-            if(flow.projectName){projectName=cleanName(flow.projectName);try{localStorage.setItem(nameKey,projectName)}catch{};const input=$('#workflowProjectName');if(input)input.value=projectName}
-            pendingReferenceState=flow.referenceState||null;
+            const flow=data.workflow;
+            if(flow?.projectName){projectName=cleanName(flow.projectName);try{localStorage.setItem(nameKey,projectName)}catch{};const input=$('#workflowProjectName');if(input)input.value=projectName}
+            pendingReferenceState=flow?.referenceState||null;
+            restoreObjectNames(data);
             if(window.__meshutilzReferenceRoot)setTimeout(()=>applyReferenceState(pendingReferenceState),120);
           }).catch(()=>{});
         },true);
@@ -125,8 +141,8 @@
     }
 
     let tries=0;const timer=setInterval(()=>{
-      const ok=installProjectName();installAbout();bindProjectControls();
-      if(ok&&bindProjectControls()||++tries>80)clearInterval(timer);
+      const ok=installProjectName();installAbout();const controlsOK=bindProjectControls();
+      if(ok&&controlsOK||++tries>80)clearInterval(timer);
     },100);
     installProjectName();installAbout();bindProjectControls();
     if(status)status.textContent=`v${build} • Workflow release`;
