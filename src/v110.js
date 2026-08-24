@@ -2,7 +2,7 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status'),aside=$('aside');
-    const build=window.BALLOON_BUILD||'1.1.2';
+    const build=window.BALLOON_BUILD||'1.1.3';
     const nameKey='meshutilz-project-name-v110';
     let projectName='Untitled Project',pendingReferenceState=null,lastSavedAt=null,loadedReferenceName='';
     try{projectName=String(localStorage.getItem(nameKey)||projectName)}catch{}
@@ -56,7 +56,7 @@
       const d=document.createElement('details');d.className='ui-section';
       const s=document.createElement('summary');s.textContent='About';
       const body=document.createElement('div');body.className='ui-section-body workflow-about';
-      body.innerHTML=`<p><strong>MeshUtilz Balloon v${build}</strong> — Workflow release.</p><p>Project files retain project name, Balloon names and reference display/transform setup. Reference geometry remains external and is reloaded separately.</p><p>OBJ and NOM filenames follow the Project name.</p><p>Keyboard: D Draw • O Orbit • Esc Deselect • Cmd/Ctrl+Z Undo.</p>`;
+      body.innerHTML=`<p><strong>MeshUtilz Balloon v${build}</strong> — Stable v1.1 workflow release.</p><p>Project files retain project name, Balloon names and reference display/transform setup. Reference geometry remains external and is reloaded separately.</p><p>OBJ and NOM filenames and exported object/node names follow the Project and Outliner names.</p><p>Keyboard: D Draw • O Orbit • Esc Deselect • Cmd/Ctrl+Z Undo.</p>`;
       d.append(s,body);
       const exportSection=findSection('Export');
       if(exportSection)aside.insertBefore(d,exportSection.nextSibling);else aside.appendChild(d);
@@ -174,6 +174,6 @@
       if(ok&&controlsOK||++tries>80)clearInterval(timer);
     },100);
     installProjectName();installAbout();bindProjectControls();updateProjectInfo();
-    if(status)status.textContent=`v${build} • Project workflow polish`;
+    if(status)status.textContent=`v${build} • Stable v1.1 workflow release`;
   });
 })();
