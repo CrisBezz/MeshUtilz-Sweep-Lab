@@ -2,9 +2,9 @@
   const ready=fn=>document.readyState==='complete'?fn():addEventListener('load',fn,{once:true});
   ready(()=>{
     const $=s=>document.querySelector(s),status=$('#status'),aside=$('aside');
-    const build=window.BALLOON_BUILD||'1.1.1';
+    const build=window.BALLOON_BUILD||'1.1.2';
     const nameKey='meshutilz-project-name-v110';
-    let projectName='Untitled Project',pendingReferenceState=null;
+    let projectName='Untitled Project',pendingReferenceState=null,lastSavedAt=null,loadedReferenceName='';
     try{projectName=String(localStorage.getItem(nameKey)||projectName)}catch{}
 
     const cleanName=value=>String(value||'').trim().replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').slice(0,80)||'Untitled Project';
@@ -13,6 +13,18 @@
 
     const sectionTitle=d=>d.querySelector(':scope > summary')?.textContent?.trim()||'';
     const findSection=title=>[...(aside?.querySelectorAll(':scope > details.ui-section')||[])].find(d=>sectionTitle(d)===title)||null;
+    const timeText=d=>d?new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(d):'Not saved this session';
+
+    function updateProjectInfo(){
+      const saved=$('#workflowLastSaved'),ref=$('#workflowReferenceName');
+      if(saved)saved.textContent=timeText(lastSavedAt);
+      if(ref){
+        let name=loadedReferenceName;
+        const text=$('#referenceStatus')?.textContent||'';
+        if(!name&&text&&!/No reference/i.test(text))name=text.replace(/^Reference\s*/i,'').replace(/^loaded\s*/i,'').trim();
+        ref.textContent=name||'None';
+      }
+    }
 
     function installProjectName(){
       const project=findSection('Project'),body=project?.querySelector(':scope > .ui-section-body');
@@ -20,11 +32,12 @@
       let wrap=body.querySelector('.workflow-project-meta');
       if(!wrap){
         wrap=document.createElement('div');wrap.className='workflow-project-meta';
-        wrap.innerHTML='<label>Project name <input id="workflowProjectName" type="text" maxlength="80" autocomplete="off"></label>';
+        wrap.innerHTML='<label>Project name <input id="workflowProjectName" type="text" maxlength="80" autocomplete="off"></label><div class="workflow-project-info"><span>Reference <strong id="workflowReferenceName">None</strong></span><span>Last saved <strong id="workflowLastSaved">Not saved this session</strong></span></div>';
         body.prepend(wrap);
         const style=document.createElement('style');style.textContent=`
           .workflow-project-meta{margin:2px 0 5px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.09)}
           .workflow-project-meta label{margin:0;font-size:10px}.workflow-project-meta input{width:100%;box-sizing:border-box;margin-top:3px}
+          .workflow-project-info{display:grid;gap:2px;margin-top:5px;font-size:9px;opacity:.75}.workflow-project-info strong{font-weight:600;opacity:1}
           .workflow-about{font-size:10px;line-height:1.35;opacity:.86}.workflow-about p{margin:4px 0}.workflow-about strong{opacity:1}
         `;document.head.appendChild(style);
       }
@@ -34,6 +47,7 @@
         input.addEventListener('change',()=>{projectName=cleanName(input.value);input.value=projectName;try{localStorage.setItem(nameKey,projectName)}catch{};if(status)status.textContent=`Project name • ${projectName}`});
         input.addEventListener('blur',()=>{projectName=cleanName(input.value);input.value=projectName;try{localStorage.setItem(nameKey,projectName)}catch{}});
       }
+      updateProjectInfo();
       return !!input;
     }
 
@@ -42,7 +56,7 @@
       const d=document.createElement('details');d.className='ui-section';
       const s=document.createElement('summary');s.textContent='About';
       const body=document.createElement('div');body.className='ui-section-body workflow-about';
-      body.innerHTML=`<p><strong>MeshUtilz Balloon v${build}</strong> — Workflow release.</p><p>Project files retain the project name, Balloon names and reference display/transform setup. Reference geometry itself remains external and is reloaded separately.</p><p>Keyboard: D Draw • O Orbit • Esc Deselect • Cmd/Ctrl+Z Undo.</p>`;
+      body.innerHTML=`<p><strong>MeshUtilz Balloon v${build}</strong> — Workflow release.</p><p>Project files retain project name, Balloon names and reference display/transform setup. Reference geometry remains external and is reloaded separately.</p><p>OBJ and NOM filenames follow the Project name.</p><p>Keyboard: D Draw • O Orbit • Esc Deselect • Cmd/Ctrl+Z Undo.</p>`;
       d.append(s,body);
       const exportSection=findSection('Export');
       if(exportSection)aside.insertBefore(d,exportSection.nextSibling);else aside.appendChild(d);
@@ -76,6 +90,7 @@
       const xo=$('#referenceXOut'),yo=$('#referenceYOut'),zo=$('#referenceZOut'),so=$('#referenceScaleOut');
       if(xo)xo.value=r.position.x.toFixed(2);if(yo)yo.value=r.position.y.toFixed(2);if(zo)zo.value=r.position.z.toFixed(2);if(so)so.value=`${Math.round(r.scale.x*100)}%`;
       pendingReferenceState=null;
+      updateProjectInfo();
       if(status)status.textContent='Reference workflow state restored';
       return true;
     }
@@ -97,7 +112,18 @@
       setTimeout(apply,40);
     }
 
-    addEventListener('meshutilz-reference-loaded',()=>setTimeout(()=>applyReferenceState(pendingReferenceState),80));
+    addEventListener('meshutilz-reference-loaded',()=>setTimeout(()=>{
+      const text=$('#referenceStatus')?.textContent||'';
+      if(text&&!/No reference/i.test(text))loadedReferenceName=text.replace(/^Reference\s*/i,'').replace(/^loaded\s*/i,'').trim();
+      applyReferenceState(pendingReferenceState);updateProjectInfo();
+    },80));
+
+    // Ensure all downloadable project/geometry files use the Project name.
+    document.addEventListener('click',e=>{
+      const a=e.target?.closest?.('a');if(!a||!a.download)return;
+      const m=String(a.download).match(/\.(obj|nom)$/i);if(!m)return;
+      a.download=`${fileBase()}.${m[1].toLowerCase()}`;
+    },true);
 
     document.addEventListener('click',async e=>{
       const a=e.target?.closest?.('a');
@@ -107,10 +133,11 @@
         const data=JSON.parse(await (await fetch(a.href)).text());
         const api=window.MeshUtilzOutlinerAPI;
         if(api?.list){data.objectNames=api.list().map(x=>x.name||'');data.namingVersion=1}
-        data.workflow={version:2,projectName:cleanName(projectName),referenceState:captureReferenceState()};
+        data.workflow={version:3,projectName:cleanName(projectName),referenceState:captureReferenceState(),referenceName:loadedReferenceName||data.reference?.name||null};
         const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),out=document.createElement('a');
         out.href=url;out.download=`${fileBase()}.meshutilz`;out.dataset.v110Workflow='1';out.dataset.v097Names='1';document.body.appendChild(out);out.click();out.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
-        if(status)status.textContent=`Project saved • ${projectName}`;
+        lastSavedAt=new Date();updateProjectInfo();
+        if(status)status.textContent=`Project saved • ${projectName} • ${timeText(lastSavedAt)}`;
       }catch(err){if(status)status.textContent=`Workflow project save failed: ${err.message}`}
     },true);
 
@@ -125,6 +152,8 @@
             const flow=data.workflow;
             if(flow?.projectName){projectName=cleanName(flow.projectName);try{localStorage.setItem(nameKey,projectName)}catch{};const input=$('#workflowProjectName');if(input)input.value=projectName}
             pendingReferenceState=flow?.referenceState||null;
+            loadedReferenceName=String(flow?.referenceName||data.reference?.name||'');
+            lastSavedAt=null;updateProjectInfo();
             restoreObjectNames(data);
             if(window.__meshutilzReferenceRoot)setTimeout(()=>applyReferenceState(pendingReferenceState),120);
           }).catch(()=>{});
@@ -134,17 +163,17 @@
       if(newBtn&&!newBtn.dataset.v110Bound){
         newBtn.dataset.v110Bound='1';
         newBtn.addEventListener('click',()=>setTimeout(()=>{
-          const api=window.MeshUtilzOutlinerAPI;if(api?.list?.().length===0){projectName='Untitled Project';const input=$('#workflowProjectName');if(input)input.value=projectName;pendingReferenceState=null;try{localStorage.setItem(nameKey,projectName)}catch{}}
+          const api=window.MeshUtilzOutlinerAPI;if(api?.list?.().length===0){projectName='Untitled Project';loadedReferenceName='';lastSavedAt=null;const input=$('#workflowProjectName');if(input)input.value=projectName;pendingReferenceState=null;try{localStorage.setItem(nameKey,projectName)}catch{};updateProjectInfo()}
         },80));
       }
       return !!(projectFile&&newBtn);
     }
 
     let tries=0;const timer=setInterval(()=>{
-      const ok=installProjectName();installAbout();const controlsOK=bindProjectControls();
+      const ok=installProjectName();installAbout();const controlsOK=bindProjectControls();updateProjectInfo();
       if(ok&&controlsOK||++tries>80)clearInterval(timer);
     },100);
-    installProjectName();installAbout();bindProjectControls();
-    if(status)status.textContent=`v${build} • Workflow release`;
+    installProjectName();installAbout();bindProjectControls();updateProjectInfo();
+    if(status)status.textContent=`v${build} • Project workflow polish`;
   });
 })();
