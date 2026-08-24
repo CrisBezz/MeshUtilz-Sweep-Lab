@@ -50,12 +50,12 @@
     }
 
     function captureReferenceState(){
-      const r=window.__meshutilzReferenceRoot;
+      const r=window.__meshutilzReferenceRoot,opacity=$('#referenceOpacity');
       return {
         position:r?r.position.toArray():null,
         quaternion:r?r.quaternion.toArray():null,
         scale:r?r.scale.toArray():null,
-        opacity:Number.isFinite(+$ ('#referenceOpacity')?.value)?+$ ('#referenceOpacity').value:null,
+        opacity:opacity&&Number.isFinite(+opacity.value)?+opacity.value:null,
         edges:!!$('#referenceEdges')?.checked,
         wireframe:!!$('#referenceWire')?.checked,
         isolate:!!$('#referenceIsolate')?.checked
@@ -99,27 +99,36 @@
       }catch(err){if(status)status.textContent=`Workflow project save failed: ${err.message}`}
     },true);
 
-    const projectFile=$('#projectFile');
-    projectFile?.addEventListener('change',e=>{
-      const file=e.target.files?.[0];if(!file)return;
-      file.text().then(text=>{
-        let data;try{data=JSON.parse(text)}catch{return}
-        const flow=data.workflow;if(!flow)return;
-        if(flow.projectName){projectName=cleanName(flow.projectName);try{localStorage.setItem(nameKey,projectName)}catch{};const input=$('#workflowProjectName');if(input)input.value=projectName}
-        pendingReferenceState=flow.referenceState||null;
-        if(window.__meshutilzReferenceRoot)setTimeout(()=>applyReferenceState(pendingReferenceState),120);
-      }).catch(()=>{});
-    },true);
-
-    $('#newProjectBtn')?.addEventListener('click',()=>setTimeout(()=>{
-      const api=window.MeshUtilzOutlinerAPI;if(api?.list?.().length===0){projectName='Untitled Project';const input=$('#workflowProjectName');if(input)input.value=projectName;pendingReferenceState=null;try{localStorage.setItem(nameKey,projectName)}catch{}}
-    },80));
+    function bindProjectControls(){
+      const projectFile=$('#projectFile');
+      if(projectFile&&!projectFile.dataset.v110Bound){
+        projectFile.dataset.v110Bound='1';
+        projectFile.addEventListener('change',e=>{
+          const file=e.target.files?.[0];if(!file)return;
+          file.text().then(text=>{
+            let data;try{data=JSON.parse(text)}catch{return}
+            const flow=data.workflow;if(!flow)return;
+            if(flow.projectName){projectName=cleanName(flow.projectName);try{localStorage.setItem(nameKey,projectName)}catch{};const input=$('#workflowProjectName');if(input)input.value=projectName}
+            pendingReferenceState=flow.referenceState||null;
+            if(window.__meshutilzReferenceRoot)setTimeout(()=>applyReferenceState(pendingReferenceState),120);
+          }).catch(()=>{});
+        },true);
+      }
+      const newBtn=$('#newProjectBtn');
+      if(newBtn&&!newBtn.dataset.v110Bound){
+        newBtn.dataset.v110Bound='1';
+        newBtn.addEventListener('click',()=>setTimeout(()=>{
+          const api=window.MeshUtilzOutlinerAPI;if(api?.list?.().length===0){projectName='Untitled Project';const input=$('#workflowProjectName');if(input)input.value=projectName;pendingReferenceState=null;try{localStorage.setItem(nameKey,projectName)}catch{}}
+        },80));
+      }
+      return !!(projectFile&&newBtn);
+    }
 
     let tries=0;const timer=setInterval(()=>{
-      const ok=installProjectName();installAbout();
-      if(ok||++tries>80)clearInterval(timer);
+      const ok=installProjectName();installAbout();bindProjectControls();
+      if(ok&&bindProjectControls()||++tries>80)clearInterval(timer);
     },100);
-    installProjectName();installAbout();
+    installProjectName();installAbout();bindProjectControls();
     if(status)status.textContent=`v${build} • Workflow release`;
   });
 })();
